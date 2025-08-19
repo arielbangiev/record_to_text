@@ -2313,3 +2313,7 @@ if __name__ == '__main__':
     print("🔥 מוכן לפעולה!")
     
     app.run(debug=DEBUG, host=HOST, port=PORT)
+
+# For production deployment (Gunicorn will use this)
+# This ensures the app object is available for Gunicorn
+application = app
