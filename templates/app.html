@@ -2281,29 +2281,43 @@
 
         // פונקציות שמירה בשרת (במקום localStorage) - עם בדיקת מגבלות
         async function saveSessionLocally() {
-            if (!currentPatientName || !correctedTranscript) {
-                showStatus('אין תוכן לשמירה', 'error');
+            // קבלת נתונים מהטופס במקום להסתמך על משתנים גלובליים
+            const patientName = document.getElementById('patientName').value.trim();
+            const sessionDate = document.getElementById('sessionDate').value;
+            const textEditor = document.getElementById('textEditor');
+            const editedText = textEditor ? textEditor.value.trim() : '';
+            
+            // בדיקת שדות חובה
+            if (!patientName) {
+                showStatus('יש להזין שם מטופל', 'error');
+                return;
+            }
+            
+            if (!editedText && !correctedTranscript) {
+                showStatus('אין תוכן לשמירה - יש לבצע תמלול תחילה או להזין טקסט', 'error');
                 return;
             }
 
-            console.log('💾 מתחיל תהליך שמירת סשן בשרת עבור:', currentPatientName);
-
-            const sessionDate = document.getElementById('sessionDate').value;
+            console.log('💾 מתחיל תהליך שמירת סשן בשרת עבור:', patientName);
             
-            // יצירת אובייקט הסשן
+            // יצירת אובייקט הסשן עם נתונים מהטופס
             const sessionData = {
-                patient_name: currentPatientName,
-                session_date: sessionDate,
-                original_transcript: originalTranscript,
-                corrected_transcript: correctedTranscript,
-                edited_transcript: correctedTranscript,
+                patient_name: patientName,
+                session_date: sessionDate || new Date().toISOString().split('T')[0],
+                original_transcript: originalTranscript || editedText,
+                corrected_transcript: correctedTranscript || editedText,
+                edited_text: editedText || correctedTranscript, // השדה שהשרת מצפה לו
                 audio_filename: document.getElementById('audioFile').files[0]?.name || 'direct_text.txt',
-                quality_mode: document.getElementById('qualityMode').value,
+                quality_mode: document.getElementById('qualityMode').value || 'text_processing',
                 replace_existing: false
             };
 
             try {
                 showStatus('💾 שומר סשן בשרת...', 'loading');
+
+                // הדפסת נתוני הבקשה לדיבוג
+                console.log('📤 שולח נתוני סשן לשרת:', sessionData);
+                console.log('🔐 Session token:', sessionToken ? 'קיים' : 'חסר');
 
                 const response = await fetch('/save-edited-text', {
                     method: 'POST',
@@ -2314,7 +2328,18 @@
                     body: JSON.stringify(sessionData)
                 });
 
-                const result = await response.json();
+                console.log('📥 תגובת השרת - סטטוס:', response.status);
+
+                let result;
+                try {
+                    result = await response.json();
+                    console.log('📥 תגובת השרת - תוכן:', result);
+                } catch (jsonError) {
+                    console.error('❌ שגיאה בפענוח JSON מהשרת:', jsonError);
+                    const textResponse = await response.text();
+                    console.log('📥 תגובת השרת כטקסט:', textResponse);
+                    throw new Error(`שגיאה בפענוח תגובת השרת: ${textResponse}`);
+                }
 
                 if (response.ok) {
                     showStatus('✅ הסשן נשמר בשרת בהצלחה!', 'success');
@@ -2326,6 +2351,18 @@
                     await checkUserLimits();
                     
                     console.log('✅ סשן נשמר בשרת:', result);
+                } else if (response.status === 400) {
+                    // Bad Request - בדיקה מפורטת של השגיאה
+                    console.error('❌ שגיאת 400 - בקשה שגויה:', result);
+                    const errorMessage = result.error || 'בקשה שגויה - חסרים נתונים נדרשים';
+                    showStatus(`שגיאה בשמירה: ${errorMessage}`, 'error');
+                } else if (response.status === 401) {
+                    // Unauthorized - בעיית אימות
+                    console.error('❌ שגיאת 401 - אימות נכשל');
+                    showStatus('שגיאת אימות - יש להתחבר מחדש', 'error');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 2000);
                 } else if (response.status === 402) {
                     // Payment Required - הגעה למגבלה
                     showStatus('⚠️ הגעת למגבלה', 'error');
@@ -2333,11 +2370,12 @@
                         showUpgradeModal(result);
                     }, 1500);
                 } else {
-                    showStatus(`שגיאה בשמירה: ${result.error}`, 'error');
+                    const errorMessage = result?.error || `שגיאת שרת ${response.status}`;
+                    showStatus(`שגיאה בשמירה: ${errorMessage}`, 'error');
                 }
             } catch (error) {
-                console.error('שגיאה בשמירת סשן:', error);
-                showStatus('שגיאה בחיבור לשרת', 'error');
+                console.error('❌ שגיאה בשמירת סשן:', error);
+                showStatus(`שגיאה בחיבור לשרת: ${error.message}`, 'error');
             }
         }
 
