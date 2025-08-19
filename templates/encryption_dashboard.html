@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 לוח בקרת הצפנה - מערכת תמלול מוצפנת</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #581c87 100%);
+            min-height: 100vh;
+            color: white;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            font-size: 2em;
+            margin-left: 15px;
+        }
+
+        .card-title {
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+
+        .card-content {
+            margin-bottom: 20px;
+        }
+
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            opacity: 0.8;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: #fbbf24;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin: 5px 0;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        .btn-danger:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+
+        .btn-warning:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            opacity: 0.9;
+        }
+
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+            backdrop-filter: blur(5px);
+        }
+
+        .form-group input::placeholder, .form-group textarea::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .form-group input:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #fbbf24;
+            box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2);
+        }
+
+        .sessions-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .session-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .session-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateX(-5px);
+        }
+
+        .session-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .session-date {
+            font-weight: 600;
+            color: #fbbf24;
+        }
+
+        .session-words {
+            opacity: 0.8;
+            font-size: 14px;
+        }
+
+        .session-patient {
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 100%);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80%;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 12px;
+            margin: 20px 0;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .status.success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #10b981;
+        }
+
+        .status.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #ef4444;
+        }
+
+        .status.loading {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            color: #3b82f6;
+        }
+
+        .security-info {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .security-info h4 {
+            color: #10b981;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .security-info ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .security-info li {
+            padding: 5px 0;
+            opacity: 0.9;
+        }
+
+        .security-info li::before {
+            content: "✅ ";
+            margin-left: 10px;
+        }
+
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .card {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="back-btn" onclick="goBack()">← חזור למערכת</button>
+
+    <div class="container">
+        <div class="header">
+            <h1>🔐 לוח בקרת הצפנה היברידית</h1>
+            <p>ניהול מתקדם של סשנים מוצפנים עם חיסיון מוחלט</p>
+        </div>
+
+        <!-- מידע אבטחה -->
+        <div class="security-info">
+            <h4>🛡️ רמת האבטחה שלך</h4>
+            <ul>
+                <li>הצפנה דו-שכבתית עם מפתח אישי</li>
+                <li>השרת לא יכול לראות את התוכן - רק נתונים מוצפנים</li>
+                <li>סנכרון מאובטח בין כל המכשירים שלך</li>
+                <li>גיבוי אוטומטי מוצפן בענן</li>
+                <li>מחיקה מאובטחת של נתונים זמניים</li>
+            </ul>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- הגדרת הצפנה -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon">🔑</div>
+                    <div class="card-title">הגדרת הצפנה</div>
+                </div>
+                <div class="card-content">
+                    <div id="encryptionStatus">
+                        <div class="stat">
+                            <span class="stat-label">סטטוס הצפנה:</span>
+                            <span class="stat-value" id="encryptionStatusValue">לא מוגדר</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">מפתח נוצר:</span>
+                            <span class="stat-value" id="keyCreatedDate">-</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">שימוש אחרון:</span>
+                            <span class="stat-value" id="lastUsedDate">-</span>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="setupEncryption()">🔧 הגדר הצפנה</button>
+                <button class="btn btn-warning" onclick="verifyEncryption()">🔍 אמת סיסמה</button>
+            </div>
+
+            <!-- סטטיסטיקות -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon">📊</div>
+                    <div class="card-title">סטטיסטיקות</div>
+                </div>
+                <div class="card-content">
+                    <div class="stat">
+                        <span class="stat-label">סשנים מוצפנים:</span>
+                        <span class="stat-value" id="encryptedSessionsCount">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">מזהה מכשיר:</span>
+                        <span class="stat-value" id="deviceId">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">סנכרון אחרון:</span>
+                        <span class="stat-value" id="lastSyncDate">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">גרסת סנכרון:</span>
+                        <span class="stat-value" id="syncVersion">-</span>
+                    </div>
+                </div>
+                <button class="btn" onclick="refreshStats()">🔄 רענן נתונים</button>
+            </div>
+
+            <!-- ניהול סשנים -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon">📁</div>
+                    <div class="card-title">ניהול סשנים</div>
+                </div>
+                <div class="card-content">
+                    <button class="btn" onclick="loadEncryptedSessions()">📋 הצג סשנים מוצפנים</button>
+                    <button class="btn btn-primary" onclick="syncSessions()">☁️ סנכרן לענן</button>
+                    <button class="btn btn-warning" onclick="exportBackup()">📦 יצא גיבוי</button>
+                    <button class="btn btn-warning" onclick="importBackup()">📥 יבא גיבוי</button>
+                </div>
+            </div>
+
+            <!-- תמלול מוצפן חדש -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon">🎤</div>
+                    <div class="card-title">תמלול מוצפן חדש</div>
+                </div>
+                <div class="card-content">
+                    <p style="opacity: 0.9; margin-bottom: 15px;">
+                        צור תמלול חדש עם הצפנה אוטומטית וסנכרון לענן
+                    </p>
+                </div>
+                <button class="btn" onclick="startEncryptedTranscription()">🎯 התחל תמלול מוצפן</button>
+            </div>
+        </div>
+
+        <!-- רשימת סשנים -->
+        <div class="card" id="sessionsCard" style="display: none;">
+            <div class="card-header">
+                <div class="card-icon">📋</div>
+                <div class="card-title">סשנים מוצפנים</div>
+            </div>
+            <div class="card-content">
+                <div class="sessions-list" id="sessionsList">
+                    <!-- סשנים יוצגו כאן -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- מודל הגדרת הצפנה -->
+    <div id="setupModal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeModal('setupModal')">×</button>
+            <h2 style="margin-bottom: 20px; color: #fbbf24;">🔑 הגדרת הצפנה אישית</h2>
+            
+            <div class="security-info">
+                <h4>🔒 חשוב לזכור!</h4>
+                <ul>
+                    <li>הסיסמה האישית לא ניתנת לשחזור</li>
+                    <li>אם תשכח אותה, הסשנים יאבדו לצמיתות</li>
+                    <li>שמור גיבוי של הסיסמה במקום בטוח</li>
+                    <li>השתמש בסיסמה חזקה ויחידה</li>
+                </ul>
+            </div>
+
+            <form id="setupForm">
+                <div class="form-group">
+                    <label for="masterPassword">סיסמת הצפנה אישית:</label>
+                    <input type="password" id="masterPassword" placeholder="בחר סיסמה חזקה (לפחות 8 תווים)" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirmPassword">אימות סיסמה:</label>
+                    <input type="password" id="confirmPassword" placeholder="הזן שוב את הסיסמה" required>
+                </div>
+                
+                <button type="submit" class="btn">🔐 צור מפתח הצפנה</button>
+            </form>
+            
+            <div id="setupStatus" class="status" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- מודל אימות סיסמה -->
+    <div id="verifyModal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeModal('verifyModal')">×</button>
+            <h2 style="margin-bottom: 20px; color: #fbbf24;">🔍 אימות סיסמת הצפנה</h2>
+            
+            <form id="verifyForm">
+                <div class="form-group">
+                    <label for="verifyPassword">הזן את סיסמת ההצפנה שלך:</label>
+                    <input type="password" id="verifyPassword" placeholder="סיסמת הצפנה" required>
+                </div>
+                
+                <button type="submit" class="btn">🔓 אמת סיסמה</button>
+            </form>
+            
+            <div id="verifyStatus" class="status" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- מודל יבוא גיבוי -->
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeModal('importModal')">×</button>
+            <h2 style="margin-bottom: 20px; color: #fbbf24;">📥 יבוא גיבוי מוצפן</h2>
+            
+            <form id="importForm">
+                <div class="form-group">
+                    <label for="backupData">נתוני גיבוי מוצפן:</label>
+                    <textarea id="backupData" rows="6" placeholder="הדבק כאן את נתוני הגיבוי המוצפן..." required></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="importPassword">סיסמת הצפנה:</label>
+                    <input type="password" id="importPassword" placeholder="סיסמת ההצפנה שלך" required>
+                </div>
+                
+                <button type="submit" class="btn">📥 יבא גיבוי</button>
+            </form>
+            
+            <div id="importStatus" class="status" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- מודל תוכן סשן -->
+    <div id="sessionModal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeModal('sessionModal')">×</button>
+            <h2 id="sessionTitle" style="margin-bottom: 20px; color: #fbbf24;"></h2>
+            <div id="sessionContent"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let sessionToken = null;
+        let userEncryptionKey = null;
+
+        // בדיקת אימות בטעינת הדף
+        async function checkAuth() {
+            try {
+                sessionToken = localStorage.getItem('session_token');
+                
+                if (!sessionToken) {
+                    window.location.href = '/';
+                    return false;
+                }
+
+                const response = await fetch('/auth/verify', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    currentUser = data.user_info;
+                    return true;
+                } else {
+                    localStorage.removeItem('session_token');
+                    window.location.href = '/';
+                    return false;
+                }
+            } catch (error) {
+                console.error('שגיאה בבדיקת אימות:', error);
+                window.location.href = '/';
+                return false;
+            }
+        }
+
+        // טעינת סטטיסטיקות הצפנה
+        async function loadEncryptionStats() {
+            try {
+                const response = await fetch('/encryption/stats', {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const stats = data.stats;
+                    
+                    // עדכון הממשק
+                    document.getElementById('encryptedSessionsCount').textContent = stats.encrypted_sessions_count || 0;
+                    document.getElementById('deviceId').textContent = stats.device_id || '-';
+                    document.getElementById('lastSyncDate').textContent = 
+                        stats.last_sync ? new Date(stats.last_sync).toLocaleString('he-IL') : 'לא סונכרן';
+                    document.getElementById('syncVersion').textContent = stats.sync_version || 0;
+                    
+                    // סטטוס הצפנה
+                    if (stats.encryption_key_created) {
+                        document.getElementById('encryptionStatusValue').textContent = '✅ מוגדר';
+                        document.getElementById('encryptionStatusValue').style.color = '#10b981';
+                        document.getElementById('keyCreatedDate').textContent = 
+                            new Date(stats.encryption_key_created).toLocaleString('he-IL');
+                        document.getElementById('lastUsedDate').textContent = 
+                            stats.encryption_key_last_used ? 
+                            new Date(stats.encryption_key_last_used).toLocaleString('he-IL') : 'לא נעשה שימוש';
+                    } else {
+                        document.getElementById('encryptionStatusValue').textContent = '❌ לא מוגדר';
+                        document.getElementById('encryptionStatusValue').style.color = '#ef4444';
+                    }
+                } else {
+                    showStatus('שגיאה בטעינת סטטיסטיקות', 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בטעינת סטטיסטיקות:', error);
+                showStatus('שגיאה בחיבור לשרת', 'error');
+            }
+        }
+
+        // הגדרת הצפנה
+        function setupEncryption() {
+            document.getElementById('setupModal').style.display = 'block';
+        }
+
+        // טיפול בטופס הגדרת הצפנה
+        document.getElementById('setupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const password = document.getElementById('masterPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            if (password.length < 8) {
+                showSetupStatus('הסיסמה חייבת להכיל לפחות 8 תווים', 'error');
+                return;
+            }
+            
+            if (password !== confirmPassword) {
+                showSetupStatus('הסיסמאות לא תואמות', 'error');
+                return;
+            }
+            
+            try {
+                showSetupStatus('יוצר מפתח הצפנה...', 'loading');
+                
+                const response = await fetch('/encryption/setup', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ master_password: password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSetupStatus('✅ מפתח הצפנה נוצר בהצלחה!', 'success');
+                    userEncryptionKey = data.encryption_key;
+                    
+                    setTimeout(() => {
+                        closeModal('setupModal');
+                        loadEncryptionStats();
+                    }, 2000);
+                } else {
+                    showSetupStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בהגדרת הצפנה:', error);
+                showSetupStatus('❌ שגיאה בחיבור לשרת', 'error');
+            }
+        });
+
+        // אימות סיסמת הצפנה
+        function verifyEncryption() {
+            document.getElementById('verifyModal').style.display = 'block';
+        }
+
+        // טיפול בטופס אימות
+        document.getElementById('verifyForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const password = document.getElementById('verifyPassword').value;
+            
+            try {
+                showVerifyStatus('מאמת סיסמה...', 'loading');
+                
+                const response = await fetch('/encryption/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ master_password: password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showVerifyStatus('✅ סיסמה נכונה!', 'success');
+                    userEncryptionKey = data.encryption_key;
+                    
+                    setTimeout(() => {
+                        closeModal('verifyModal');
+                        loadEncryptionStats();
+                    }, 1500);
+                } else {
+                    showVerifyStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה באימות:', error);
+                showVerifyStatus('❌ שגיאה בחיבור לשרת', 'error');
+            }
+        });
+
+        // טעינת סשנים מוצפנים
+        async function loadEncryptedSessions() {
+            try {
+                showStatus('טוען סשנים מוצפנים...', 'loading');
+                
+                const response = await fetch('/encryption/sessions', {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayEncryptedSessions(data.sessions);
+                    document.getElementById('sessionsCard').style.display = 'block';
+                    showStatus(`✅ נטענו ${data.sessions.length} סשנים מוצפנים`, 'success');
+                } else {
+                    showStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בטעינת סשנים:', error);
+                showStatus('❌ שגיאה בחיבור לשרת', 'error');
+            }
+        }
+
+        // הצגת סשנים מוצפנים
+        function displayEncryptedSessions(sessions) {
+            const sessionsList = document.getElementById('sessionsList');
+            sessionsList.innerHTML = '';
+            
+            if (sessions.length === 0) {
+                sessionsList.innerHTML = '<p style="text-align: center; opacity: 0.7; padding: 40px;">אין סשנים מוצפנים עדיין</p>';
+                return;
+            }
+            
+            sessions.forEach(session => {
+                const sessionItem = document.createElement('div');
+                sessionItem.className = 'session-item';
+                sessionItem.onclick = () => decryptAndShowSession(session);
+                
+                const metadata = session.metadata ? JSON.parse(session.metadata) : {};
+                
+                sessionItem.innerHTML = `
+                    <div class="session-meta">
+                        <div class="session-date">${session.session_date}</div>
+                        <div class="session-words">${metadata.word_count || 0} מילים</div>
+                    </div>
+                    <div class="session-patient">🔐 סשן מוצפן</div>
+                    <div style="font-size: 12px; opacity: 0.7;">
+                        נוצר: ${new Date(session.created_at).toLocaleString('he-IL')}
+                    </div>
+                `;
+                
+                sessionsList.appendChild(sessionItem);
+            });
+        }
+
+        // פענוח והצגת סשן
+        async function decryptAndShowSession(session) {
+            if (!userEncryptionKey) {
+                alert('יש לאמת את סיסמת ההצפנה תחילה');
+                verifyEncryption();
+                return;
+            }
+            
+            try {
+                showStatus('מפענח סשן...', 'loading');
+                
+                const response = await fetch('/encryption/decrypt-session', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        session_id: session.session_id,
+                        encryption_key: userEncryptionKey
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showDecryptedSession(data.session_data);
+                    showStatus('✅ סשן פוענח בהצלחה', 'success');
+                } else {
+                    showStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בפענוח סשן:', error);
+                showStatus('❌ שגיאה בפענוח סשן', 'error');
+            }
+        }
+
+        // הצגת סשן מפוענח
+        function showDecryptedSession(sessionData) {
+            document.getElementById('sessionTitle').textContent = `סשן של ${sessionData.patient_name}`;
+            
+            const transcript = sessionData.corrected_transcript || sessionData.edited_transcript || sessionData.original_transcript || '';
+            
+            document.getElementById('sessionContent').innerHTML = `
+                <div style="margin-bottom: 20px;">
+                    <h3>פרטי הסשן</h3>
+                    <div class="stat">
+                        <span class="stat-label">שם מטופל:</span>
+                        <span class="stat-value">${sessionData.patient_name}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">תאריך:</span>
+                        <span class="stat-value">${sessionData.session_date}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">מספר מילים:</span>
+                        <span class="stat-value">${sessionData.word_count || 0}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">קובץ שמע:</span>
+                        <span class="stat-value">${sessionData.audio_filename || 'לא זמין'}</span>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <h3>תמלול</h3>
+                    <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; direction: rtl;">${transcript}</div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 30px;">
+                    <button class="btn" onclick="copySessionText('${transcript.replace(/'/g, "\\'")}')">📋 העתק טקסט</button>
+                </div>
+            `;
+            
+            document.getElementById('sessionModal').style.display = 'block';
+        }
+
+        // העתקת טקסט סשן
+        function copySessionText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showStatus('✅ טקסט הועתק ללוח', 'success');
+            });
+        }
+
+        // סנכרון סשנים
+        async function syncSessions() {
+            if (!userEncryptionKey) {
+                alert('יש לאמת את סיסמת ההצפנה תחילה');
+                verifyEncryption();
+                return;
+            }
+            
+            try {
+                showStatus('מסנכרן סשנים לענן...', 'loading');
+                
+                const response = await fetch('/encryption/sync', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ encryption_key: userEncryptionKey })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(`✅ ${data.message}`, 'success');
+                    loadEncryptionStats();
+                } else {
+                    showStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בסנכרון:', error);
+                showStatus('❌ שגיאה בסנכרון', 'error');
+            }
+        }
+
+        // יצוא גיבוי
+        async function exportBackup() {
+            if (!userEncryptionKey) {
+                alert('יש לאמת את סיסמת ההצפנה תחילה');
+                verifyEncryption();
+                return;
+            }
+            
+            try {
+                showStatus('יוצר גיבוי מוצפן...', 'loading');
+                
+                const response = await fetch('/encryption/backup', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ encryption_key: userEncryptionKey })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // הורדת הגיבוי כקובץ
+                    const blob = new Blob([data.backup_data], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `encrypted_backup_${new Date().toISOString().split('T')[0]}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    showStatus('✅ גיבוי מוצפן הורד בהצלחה', 'success');
+                } else {
+                    showStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה ביצירת גיבוי:', error);
+                showStatus('❌ שגיאה ביצירת גיבוי', 'error');
+            }
+        }
+
+        // יבוא גיבוי
+        function importBackup() {
+            document.getElementById('importModal').style.display = 'block';
+        }
+
+        // טיפול בטופס יבוא גיבוי
+        document.getElementById('importForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const backupData = document.getElementById('backupData').value.trim();
+            const password = document.getElementById('importPassword').value;
+            
+            if (!backupData || !password) {
+                showImportStatus('יש למלא את כל השדות', 'error');
+                return;
+            }
+            
+            try {
+                showImportStatus('מיבא גיבוי מוצפן...', 'loading');
+                
+                const response = await fetch('/encryption/restore', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        backup_data: backupData,
+                        encryption_key: password
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showImportStatus(`✅ ${data.message}`, 'success');
+                    
+                    setTimeout(() => {
+                        closeModal('importModal');
+                        loadEncryptionStats();
+                        loadEncryptedSessions();
+                    }, 2000);
+                } else {
+                    showImportStatus(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה ביבוא גיבוי:', error);
+                showImportStatus('❌ שגיאה ביבוא גיבוי', 'error');
+            }
+        });
+
+        // התחלת תמלול מוצפן
+        function startEncryptedTranscription() {
+            window.location.href = '/#app';
+        }
+
+        // רענון סטטיסטיקות
+        function refreshStats() {
+            loadEncryptionStats();
+        }
+
+        // חזרה למערכת הראשית
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        // סגירת מודל
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // פונקציות הצגת סטטוס
+        function showStatus(message, type) {
+            // יצירת אלמנט סטטוס זמני
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.position = 'fixed';
+            statusDiv.style.top = '20px';
+            statusDiv.style.left = '50%';
+            statusDiv.style.transform = 'translateX(-50%)';
+            statusDiv.style.zIndex = '9999';
+            statusDiv.style.minWidth = '300px';
+            
+            document.body.appendChild(statusDiv);
+            
+            setTimeout(() => {
+                if (statusDiv.parentNode) {
+                    statusDiv.parentNode.removeChild(statusDiv);
+                }
+            }, 3000);
+        }
+
+        function showSetupStatus(message, type) {
+            const statusDiv = document.getElementById('setupStatus');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+
+        function showVerifyStatus(message, type) {
+            const statusDiv = document.getElementById('verifyStatus');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+
+        function showImportStatus(message, type) {
+            const statusDiv = document.getElementById('importStatus');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+
+        // סגירת מודלים בלחיצה על הרקע
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                e.target.style.display = 'none';
+            }
+        });
+
+        // טעינה ראשונית
+        window.addEventListener('load', async () => {
+            const isAuthenticated = await checkAuth();
+            if (isAuthenticated) {
+                loadEncryptionStats();
+            }
+        });
+    </script>
+</body>
+</html>

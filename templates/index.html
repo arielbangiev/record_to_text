@@ -1,0 +1,1984 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#2563eb">
+    
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="תמלול">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
+    
+    <title>מערכת תמלול למטפלים - פתרון מקצועי לתמלול שמע</title>
+    
+    <!-- ספריית הצפנה -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%);
+            min-height: 100vh;
+            color: #1e293b;
+            line-height: 1.6;
+        }
+        
+        /* Header */
+        .top-bar {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: #ffffff;
+            padding: 8px 0;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            box-shadow: 0 2px 20px rgba(99, 102, 241, 0.15);
+            padding: 15px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #6366f1;
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #6366f1;
+        }
+
+        .cta-button {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+
+        .cta-button:hover {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 30%, #bae6fd 60%, #7dd3fc 100%);
+            color: #0f172a;
+            padding: 80px 0;
+            position: relative;
+            overflow: hidden;
+            min-height: 400px;
+        }
+
+        .hero-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .hero-content {
+            text-align: center;
+            max-width: 800px;
+        }
+
+        .hero h1 {
+            font-size: 3.5em;
+            margin-bottom: 20px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(255, 255, 255, 0.8), 
+                         -1px -1px 2px rgba(255, 255, 255, 0.6);
+        }
+
+        .hero p {
+            font-size: 1.3em;
+            margin-bottom: 120px;
+            opacity: 1;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.7), 
+                         -1px -1px 2px rgba(255, 255, 255, 0.5);
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            padding: 18px 36px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 18px;
+            transition: all 0.3s;
+            border: 2px solid rgba(99, 102, 241, 0.3);
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4), 0 0 20px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.5), 0 0 30px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f1f5f9 0%, #ffffff 100%);
+            color: #6366f1;
+            padding: 18px 36px;
+            border: 2px solid rgba(99, 102, 241, 0.3);
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 18px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
+        }
+
+        /* Main Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+
+        /* Features Section */
+        .features {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f8fafc 100%);
+            position: relative;
+            overflow: hidden;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+
+        .features::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.05) 0%, transparent 70%);
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            33% { transform: translate(30px, -30px) rotate(120deg); }
+            66% { transform: translate(-20px, 20px) rotate(240deg); }
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .section-title h2 {
+            font-size: 2.5em;
+            color: #1e293b;
+            margin-bottom: 15px;
+        }
+
+        .section-title p {
+            font-size: 1.2em;
+            color: #64748b;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.1), transparent);
+            transition: left 0.6s;
+        }
+
+        .feature-card:hover::before {
+            left: 100%;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 25px 50px rgba(99, 102, 241, 0.2);
+            border-color: #6366f1;
+            background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+        }
+
+        .feature-icon {
+            font-size: 3.5em;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 4px 8px rgba(99, 102, 241, 0.2));
+        }
+
+        .feature-card:hover .feature-icon {
+            transform: scale(1.1) rotate(5deg);
+            filter: drop-shadow(0 8px 16px rgba(99, 102, 241, 0.3));
+        }
+
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+
+        .feature-card h3 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #1e293b;
+        }
+
+        .feature-card p {
+            color: #64748b;
+            line-height: 1.7;
+        }
+
+        /* App Section */
+        .app-section {
+            padding: 60px 0;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+
+        .app-container {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            padding: 32px;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        .section h2 {
+            color: #1e293b;
+            margin-bottom: 24px;
+            font-size: 1.8em;
+            border-bottom: 2px solid #6366f1;
+            padding-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 16px 20px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 16px;
+            background: white;
+            color: #1f2937;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-group input::placeholder {
+            color: #9ca3af;
+        }
+
+        .form-group small {
+            color: #6b7280;
+            font-size: 12px;
+        }
+
+        .recording-section {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .record-btn {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 20px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+        }
+
+        .record-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
+        }
+
+        .record-btn.recording {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            animation: pulse 1s infinite;
+        }
+
+        .record-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .upload-area {
+            border: 2px dashed #6366f1;
+            border-radius: 16px;
+            padding: 48px;
+            text-align: center;
+            background: #f8fafc;
+            margin: 24px 0;
+            transition: all 0.3s ease;
+            color: #64748b;
+        }
+
+        .upload-area:hover {
+            border-color: #8b5cf6;
+            background: #f0f9ff;
+            transform: translateY(-2px);
+        }
+
+        .upload-area.dragover {
+            border-color: #10b981;
+            background: #ecfdf5;
+            color: #059669;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-label {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            padding: 16px 32px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: inline-block;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .file-label:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+        }
+
+        .transcribe-btn {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 18px 36px;
+            border-radius: 14px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 24px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+        }
+
+        .transcribe-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+        }
+
+        .transcribe-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .status {
+            padding: 16px 24px;
+            border-radius: 12px;
+            margin: 24px 0;
+            font-weight: 500;
+            text-align: center;
+            border: 1px solid transparent;
+        }
+
+        .status.loading {
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-color: #93c5fd;
+        }
+
+        .status.success {
+            background: #dcfce7;
+            color: #166534;
+            border-color: #86efac;
+        }
+
+        .status.error {
+            background: #fee2e2;
+            color: #dc2626;
+            border-color: #fca5a5;
+        }
+
+        .result-area {
+            background: #f8fafc;
+            border: 2px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 24px;
+            margin-top: 24px;
+            min-height: 200px;
+            font-size: 16px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            direction: rtl;
+            position: relative;
+            color: #1f2937;
+        }
+
+        .result-area:empty::before {
+            content: "התמלול יופיע כאן...";
+            color: #9ca3af;
+            font-style: italic;
+        }
+
+        .result-tabs {
+            display: flex;
+            margin-top: 24px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f8fafc;
+            border-radius: 12px 12px 0 0;
+            overflow: hidden;
+        }
+
+        .result-tab {
+            padding: 16px 24px;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            margin-left: 0;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            color: #6b7280;
+            flex: 1;
+            text-align: center;
+        }
+
+        .result-tab.active {
+            background: white;
+            border-bottom-color: #2563eb;
+            color: #2563eb;
+        }
+
+        .result-tab:hover:not(.active) {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .text-editor {
+            background: #f8fafc;
+            border: 2px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 24px;
+            margin-top: 16px;
+            min-height: 200px;
+            font-size: 16px;
+            line-height: 1.8;
+            direction: rtl;
+            resize: vertical;
+            width: 100%;
+            font-family: inherit;
+            outline: none;
+            color: #1f2937;
+        }
+
+        .text-editor:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .text-editor::placeholder {
+            color: #9ca3af;
+        }
+
+        .patients-section {
+            background: transparent;
+        }
+
+        .patients-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 24px;
+        }
+
+        .patient-card {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .patient-card:hover {
+            border-color: #2563eb;
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .patient-card h3 {
+            color: #1e293b;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .patient-card p {
+            color: #64748b;
+        }
+
+        .delete-patient-btn {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+            z-index: 10;
+        }
+
+        .delete-patient-btn:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5);
+        }
+
+        .corrections-info {
+            background: #ecfdf5;
+            border: 1px solid #86efac;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+            display: none;
+        }
+
+        .corrections-info.show {
+            display: block;
+        }
+
+        .corrections-info h4 {
+            color: #059669;
+            margin-bottom: 12px;
+        }
+
+        .corrections-list {
+            list-style: none;
+            padding: 0;
+            margin: 12px 0 0 0;
+        }
+
+        .corrections-list li {
+            background: white;
+            color: #1f2937;
+            padding: 12px 16px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border-right: 4px solid #10b981;
+        }
+
+        .text-stats {
+            background: #f8fafc;
+            color: #64748b;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 16px 0;
+            text-align: center;
+            font-size: 14px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .edit-controls {
+            display: flex;
+            gap: 12px;
+            margin: 16px 0;
+            flex-wrap: wrap;
+        }
+
+        .edit-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .fix-btn {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .fix-btn:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+        }
+
+        .revert-btn {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+        }
+
+        .revert-btn:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 16px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+        }
+
+        .copy-btn {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+
+        .copy-btn:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+        }
+
+        .save-btn {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            color: white;
+        }
+
+        .save-btn:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(139, 92, 246, 0.4);
+        }
+
+        .sessions-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 900px;
+            width: 95%;
+            max-height: 85%;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            color: #1f2937;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+
+        .session-item {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 15px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #1f2937;
+        }
+
+        .session-item:hover {
+            border-color: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .session-item h4 {
+            color: #2563eb;
+            margin-bottom: 8px;
+        }
+
+        .session-item p {
+            color: #64748b;
+            margin: 4px 0;
+        }
+
+        .session-item small {
+            color: #9ca3af;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin: 15px 0;
+        }
+
+        /* WhatsApp Download Section */
+        .whatsapp-download-section {
+            background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+            border-radius: 16px;
+            padding: 30px;
+            margin: 30px 0;
+            color: white;
+            text-align: center;
+        }
+
+        .whatsapp-download-section h3 {
+            margin-bottom: 15px;
+        }
+
+        /* Input Mode Buttons */
+        .input-mode-btn {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: #64748b;
+            border: 2px solid #e5e7eb;
+            padding: 16px 32px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 16px;
+        }
+
+        .input-mode-btn:hover {
+            background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+            border-color: #cbd5e1;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-mode-btn.active {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            border-color: #2563eb;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .input-mode-btn.active:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+        }
+
+        /* Pricing Section */
+        .pricing {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+
+        .pricing-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pricing-card.featured {
+            border-color: #6366f1;
+            transform: scale(1.05);
+            box-shadow: 0 20px 40px rgba(99, 102, 241, 0.2);
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+        }
+
+        .pricing-card h3 {
+            font-size: 1.8em;
+            margin-bottom: 15px;
+            color: #1e293b;
+        }
+
+        .pricing-card .price {
+            font-size: 3em;
+            font-weight: bold;
+            color: #6366f1;
+            margin: 20px 0;
+        }
+
+        .pricing-card .price small {
+            font-size: 0.4em;
+            color: #64748b;
+        }
+
+        .pricing-features {
+            list-style: none;
+            padding: 0;
+            margin: 30px 0;
+        }
+
+        .pricing-features li {
+            padding: 10px 0;
+            color: #64748b;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .pricing-features li:last-child {
+            border-bottom: none;
+        }
+
+        .pricing-features li::before {
+            content: "✓";
+            color: #10b981;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        /* Testimonials Section */
+        .testimonials {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+
+        .testimonial-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .testimonial-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .testimonial-text {
+            font-size: 1.1em;
+            line-height: 1.7;
+            color: #374151;
+            margin-bottom: 25px;
+            font-style: italic;
+        }
+
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .testimonial-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .testimonial-info h4 {
+            color: #1e293b;
+            margin-bottom: 5px;
+        }
+
+        .testimonial-info p {
+            color: #64748b;
+            font-size: 0.9em;
+        }
+
+        /* Contact Section */
+        .contact {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            color: white;
+        }
+
+        .contact-content {
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .contact h2 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+
+        .contact p {
+            font-size: 1.2em;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+
+        .contact-form {
+            display: grid;
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        .contact-form input,
+        .contact-form textarea {
+            padding: 15px 20px;
+            border: 2px solid #475569;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+        }
+
+        .contact-form input::placeholder,
+        .contact-form textarea::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .contact-form input:focus,
+        .contact-form textarea:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+        }
+
+        .contact-form button {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            border: none;
+            padding: 18px 36px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .contact-form button:hover {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Footer */
+        .footer {
+            background: #0f172a;
+            color: white;
+            padding: 60px 0 30px;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .footer-section h3 {
+            margin-bottom: 20px;
+            color: #6366f1;
+        }
+
+        .footer-section p,
+        .footer-section a {
+            color: #94a3b8;
+            text-decoration: none;
+            line-height: 1.7;
+        }
+
+        .footer-section a:hover {
+            color: #6366f1;
+        }
+
+        .footer-bottom {
+            border-top: 1px solid #334155;
+            padding-top: 30px;
+            text-align: center;
+            color: #64748b;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5em;
+            }
+            
+            .hero p {
+                font-size: 1.1em;
+                margin-bottom: 60px;
+            }
+            
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn-primary, .btn-secondary {
+                width: 100%;
+                max-width: 300px;
+            }
+            
+            .nav-links {
+                display: none;
+            }
+            
+            .app-container {
+                padding: 20px;
+            }
+            
+            .section {
+                padding: 20px;
+            }
+            
+            .record-btn {
+                width: 100%;
+                max-width: 300px;
+            }
+            
+            .upload-area {
+                padding: 30px 20px;
+            }
+            
+            .features-grid,
+            .pricing-grid,
+            .testimonials-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .pricing-card.featured {
+                transform: none;
+            }
+            
+            .contact-form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Bar -->
+    <div class="top-bar">
+        🔒 מערכת תמלול מקומית למטפלים - חיסיון רפואי מוחלט | כל התמלולים נשארים במחשב שלך בלבד
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="#" class="logo">🎤 תמלול מקצועי</a>
+            
+            <ul class="nav-links">
+                <li><a href="#features">יתרונות</a></li>
+                <li><a href="#pricing">מחירים</a></li>
+                <li><a href="#testimonials">המלצות</a></li>
+                <li><a href="#contact">צור קשר</a></li>
+            </ul>
+            
+            <!-- User Info Section -->
+            <div id="userSection" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <span id="userGreeting" style="color: #1e293b; font-weight: 600; font-size: 16px;"></span>
+                    <button id="logoutBtn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.3)'">🚪 יציאה</button>
+                </div>
+            </div>
+            
+            <!-- Login Button (shown when not authenticated) -->
+            <button id="loginButton" class="cta-button" onclick="openLoginModal()">כניסה למערכת</button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <h1>מערכת תמלול למטפלים</h1>
+                <p>פתרון מקצועי, מקומי ובטוח להמרת שמע לטקסט עבור מטפלים ורופאים</p>
+                <div class="hero-buttons">
+                    <button onclick="handleFreeTranscriptionClick()" class="btn-primary">התחל תמלול חינם</button>
+                    <a href="#features" class="btn-secondary">למד עוד</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-title">
+                <h2>למה לבחור במערכת שלנו?</h2>
+                <p>פתרון מקצועי ובטוח המותאם במיוחד לצרכים של מטפלים ורופאים</p>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>פרטיות מוחלטת</h3>
+                    <p>כל התמלולים מעובדים במחשב שלך בלבד. אין העלאה לענן, אין שמירת נתונים חיצונית. חיסיון רפואי מוחלט.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>דיוק גבוה בעברית</h3>
+                    <p>מנוע תמלול מתקדם המותאם במיוחד לעברית עם דיוק של מעל 95% במונחים רפואיים ופסיכולוגיים.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>מהיר וקל לשימוש</h3>
+                    <p>תמלול מיידי של קבצי שמע באיכות גבוהה. ממשק פשוט ואינטואיטיבי המותאם לעבודה מקצועית.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">📝</div>
+                    <h3>עריכה מתקדמת</h3>
+                    <p>כלי עריכה מתקדמים לתיקון וחידוד הטקסט. תיקון אוטומטי של שגיאות נפוצות ושיפור הקריאות.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">💾</div>
+                    <h3>ניהול מטופלים</h3>
+                    <p>מערכת ניהול מתקדמת לארגון תמלולים לפי מטופלים ותאריכים. חיפוש מהיר וגיבוי אוטומטי.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔧</div>
+                    <h3>התאמה אישית</h3>
+                    <p>הגדרות מתקדמות להתאמת המערכת לסגנון העבודה שלך. תמיכה במגוון פורמטי שמע ואפשרויות ייצוא.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="pricing">
+        <div class="container">
+            <div class="section-title">
+                <h2>תוכניות מחיר</h2>
+                <p>בחר את התוכנית המתאימה לך</p>
+            </div>
+            
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <h3>חינמי</h3>
+                    <div class="price">₪0<small>/חודש</small></div>
+                    <ul class="pricing-features">
+                        <li>עד 5 תמלולים בחודש</li>
+                        <li>מטופל אחד</li>
+                        <li>תמלול מקומי בלבד</li>
+                        <li>עריכה בסיסית</li>
+                        <li>ללא תמיכה טכנית</li>
+                    </ul>
+                    <button class="btn-primary" onclick="handleFreeTranscriptionClick()">התחל חינם</button>
+                </div>
+                
+                <div class="pricing-card featured">
+                    <h3>מקצועי</h3>
+                    <div class="price">₪49<small>/חודש</small></div>
+                    <ul class="pricing-features">
+                        <li>תמלולים ללא הגבלה</li>
+                        <li>מטופלים ללא הגבלה</li>
+                        <li>תמלול מקומי + ענן</li>
+                        <li>עריכה מתקדמת</li>
+                        <li>הצפנה היברידית</li>
+                        <li>תמיכה טכנית מלאה</li>
+                        <li>גיבוי אוטומטי</li>
+                    </ul>
+                    <button class="btn-primary" onclick="handleFreeTranscriptionClick()">התחל ניסיון</button>
+                </div>
+                
+                <div class="pricing-card">
+                    <h3>ארגוני</h3>
+                    <div class="price">₪199<small>/חודש</small></div>
+                    <ul class="pricing-features">
+                        <li>כל היתרונות של המקצועי</li>
+                        <li>עד 10 משתמשים</li>
+                        <li>ניהול מרכזי</li>
+                        <li>דוחות מתקדמים</li>
+                        <li>אינטגרציה עם מערכות</li>
+                        <li>תמיכה 24/7</li>
+                    </ul>
+                    <button class="btn-primary" onclick="handleFreeTranscriptionClick()">צור קשר</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section id="testimonials" class="testimonials">
+        <div class="container">
+            <div class="section-title">
+                <h2>מה אומרים המטפלים</h2>
+                <p>המלצות מאמיתיות ממטפלים שמשתמשים במערכת</p>
+            </div>
+            
+            <div class="testimonials-grid">
+                <div class="testimonial-card">
+                    <div class="testimonial-text">
+                        "המערכת חסכה לי שעות רבות של עבודה. הדיוק בעברית מדהים והפרטיות המוחלטת נותנת לי שקט נפשי מלא."
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">ד</div>
+                        <div class="testimonial-info">
+                            <h4>ד"ר רחל כהן</h4>
+                            <p>פסיכולוגית קלינית</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="testimonial-card">
+                    <div class="testimonial-text">
+                        "כמטפל במשפחות, אני מקליט הרבה שיחות. המערכת מאפשרת לי להתמקד במטופלים במקום בכתיבה."
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">מ</div>
+                        <div class="testimonial-info">
+                            <h4>מיכאל לוי</h4>
+                            <p>יועץ זוגי ומשפחתי</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="testimonial-card">
+                    <div class="testimonial-text">
+                        "הממשק פשוט ואינטואיטיבי. התמלולים מדויקים והעריכה המתקדמת חוסכת לי זמן יקר."
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="testimonial-avatar">ש</div>
+                        <div class="testimonial-info">
+                            <h4>שרה אברהם</h4>
+                            <p>עובדת סוציאלית</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="contact">
+        <div class="container">
+            <div class="contact-content">
+                <h2>צור קשר</h2>
+                <p>יש לך שאלות? רוצה לקבל ייעוץ אישי? אנחנו כאן בשבילך</p>
+                
+                <form class="contact-form" id="contactForm">
+                    <input type="text" placeholder="שם מלא" required>
+                    <input type="email" placeholder="כתובת אימייל" required>
+                    <input type="tel" placeholder="מספר טלפון">
+                    <textarea placeholder="איך נוכל לעזור לך?" rows="5" required></textarea>
+                    <button type="submit">שלח הודעה</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>מערכת תמלול</h3>
+                    <p>פתרון מקצועי ובטוח לתמלול שמע עבור מטפלים ורופאים. פרטיות מוחלטת ודיוק גבוה בעברית.</p>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>קישורים מהירים</h3>
+                    <p><a href="#features">יתרונות</a></p>
+                    <p><a href="#pricing">מחירים</a></p>
+                    <p><a href="#testimonials">המלצות</a></p>
+                    <p><a href="#contact">צור קשר</a></p>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>תמיכה</h3>
+                    <p><a href="/how-it-works">איך זה עובד</a></p>
+                    <p><a href="#faq">שאלות נפוצות</a></p>
+                    <p><a href="#support">תמיכה טכנית</a></p>
+                    <p><a href="#privacy">מדיניות פרטיות</a></p>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>צור קשר</h3>
+                    <p>📧 support@transcription.co.il</p>
+                    <p>📞 03-1234567</p>
+                    <p>🏢 תל אביב, ישראל</p>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2024 מערכת תמלול למטפלים. כל הזכויות שמורות.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="contact-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 2000; backdrop-filter: blur(5px);">
+        <div class="contact-modal-content" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 20px; padding: 40px; max-width: 450px; width: 90%; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3); text-align: center;">
+            <button class="close-contact-modal" onclick="closeLoginModal()" style="position: absolute; top: 15px; right: 15px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 16px;">×</button>
+            
+            <div style="text-align: center; margin-bottom: 30px;">
+                <div style="font-size: 2.5em; margin-bottom: 10px;">🎤</div>
+                <h3 style="color: #2563eb; margin-bottom: 10px;">כניסה למערכת</h3>
+                <p style="color: #64748b; margin: 0;">התחבר כדי להתחיל להשתמש במערכת התמלול</p>
+            </div>
+            
+            <div id="loginMessage" style="display: none; padding: 12px; border-radius: 8px; margin-bottom: 20px; text-align: center;"></div>
+            
+            <form id="loginForm" style="margin-bottom: 20px;">
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151; text-align: right;">אימייל:</label>
+                    <input type="email" id="loginEmail" required placeholder="your@email.com" style="width: 100%; padding: 15px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; direction: ltr; text-align: right;">
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151; text-align: right;">סיסמה:</label>
+                    <input type="password" id="loginPassword" required placeholder="הזן סיסמה" style="width: 100%; padding: 15px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; direction: ltr; text-align: right;">
+                </div>
+                
+                <button type="submit" id="loginSubmitBtn" style="width: 100%; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; border: none; padding: 15px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; margin-bottom: 20px;">
+                    כניסה למערכת
+                </button>
+            </form>
+            
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+                <p style="color: #6b7280; margin: 0;">
+                    אין לך חשבון? 
+                    <button onclick="switchToRegister()" style="background: none; border: none; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">הירשם כאן</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="registerModal" class="contact-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 2000; backdrop-filter: blur(5px);">
+        <div class="contact-modal-content" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 20px; padding: 40px; max-width: 450px; width: 90%; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3); text-align: center;">
+            <button class="close-contact-modal" onclick="closeRegisterModal()" style="position: absolute; top: 15px; right: 15px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 16px;">×</button>
+            
+            <div style="text-align: center; margin-bottom: 30px;">
+                <div style="font-size: 2.5em; margin-bottom: 10px;">🎤</div>
+                <h3 style="color: #2563eb; margin-bottom: 10px;">הרשמה למערכת</h3>
+                <p style="color: #64748b; margin: 0;">צור חשבון חדש כדי להתחיל להשתמש במערכת</p>
+            </div>
+            
+            <div id="registerMessage" style="display: none; padding: 12px; border-radius: 8px; margin-bottom: 20px; text-align: center;"></div>
+            
+            <form id="registerForm">
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151; text-align: right;">שם מלא:</label>
+                    <input type="text" id="registerFullName" required placeholder="הזן שם מלא" style="width: 100%; padding: 15px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; direction: rtl; text-align: right;">
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151; text-align: right;">אימייל:</label>
+                    <input type="email" id="registerEmail" required placeholder="your@email.com" style="width: 100%; padding: 15px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; direction: ltr; text-align: right;">
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151; text-align: right;">סיסמה:</label>
+                    <input type="password" id="registerPassword" required placeholder="בחר סיסמה חזקה" style="width: 100%; padding: 15px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; direction: ltr; text-align: right;">
+                </div>
+                
+                <button type="submit" id="registerSubmitBtn" style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 15px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; margin-bottom: 20px;">
+                    הירשם למערכת
+                </button>
+            </form>
+            
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+                <p style="color: #6b7280; margin: 0;">
+                    כבר יש לך חשבון? 
+                    <button onclick="switchToLogin()" style="background: none; border: none; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">התחבר כאן</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let sessionToken = null;
+
+        // בדיקת אימות בטעינת הדף
+        async function checkAuth() {
+            try {
+                sessionToken = localStorage.getItem('session_token');
+                
+                if (!sessionToken) {
+                    console.log('אין session token - מציג ממשק אורח');
+                    showLoginButton();
+                    showGuestInterface();
+                    return false;
+                }
+
+                const response = await fetch('/auth/verify', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    currentUser = data.user_info;
+                    console.log('אימות הצליח:', currentUser);
+                    updateUserInterface();
+                    hideGuestInterface();
+                    return true;
+                } else {
+                    localStorage.removeItem('session_token');
+                    sessionToken = null;
+                    currentUser = null;
+                    showLoginButton();
+                    showGuestInterface();
+                    return false;
+                }
+            } catch (error) {
+                console.error('שגיאה בבדיקת אימות:', error);
+                showLoginButton();
+                showGuestInterface();
+                return false;
+            }
+        }
+
+        function showLoginButton() {
+            const userSection = document.getElementById('userSection');
+            const loginButton = document.getElementById('loginButton');
+            
+            if (userSection) {
+                userSection.style.display = 'none';
+            }
+            if (loginButton) {
+                loginButton.style.display = 'inline-block';
+            }
+        }
+
+        function updateUserInterface() {
+            if (currentUser) {
+                const userSection = document.getElementById('userSection');
+                const loginButton = document.getElementById('loginButton');
+                const userGreeting = document.getElementById('userGreeting');
+                const logoutBtn = document.getElementById('logoutBtn');
+                
+                if (userSection && loginButton && userGreeting) {
+                    loginButton.style.display = 'none';
+                    userGreeting.textContent = `שלום ${currentUser.full_name}`;
+                    userSection.style.display = 'flex';
+                    
+                    if (logoutBtn) {
+                        logoutBtn.onclick = logout;
+                    }
+                }
+                
+                // הסתרת הודעת "כניסה נדרשת" והצגת מערכת התמלול
+                const loginRequiredMessage = document.getElementById('loginRequiredMessage');
+                const transcriptionSystem = document.getElementById('transcriptionSystem');
+                
+                if (loginRequiredMessage) {
+                    loginRequiredMessage.style.display = 'none';
+                }
+                
+                if (transcriptionSystem) {
+                    transcriptionSystem.style.display = 'block';
+                }
+                
+                hideGuestInterface();
+            }
+        }
+
+        function showGuestInterface() {
+            const appSection = document.querySelector('.app-section');
+            if (appSection) {
+                appSection.style.display = 'block';
+            }
+        }
+        
+        function hideGuestInterface() {
+            const marketingSections = [
+                '.top-bar',
+                '.hero'
+            ];
+            
+            marketingSections.forEach(selector => {
+                const element = document.querySelector(selector);
+                if (element) {
+                    element.style.display = 'none';
+                }
+            });
+        }
+
+        async function logout() {
+            try {
+                await fetch('/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+            } catch (error) {
+                console.error('שגיאה ביציאה:', error);
+            } finally {
+                localStorage.removeItem('session_token');
+                sessionToken = null;
+                currentUser = null;
+                
+                const userSection = document.getElementById('userSection');
+                const loginButton = document.getElementById('loginButton');
+                
+                if (userSection) userSection.style.display = 'none';
+                if (loginButton) loginButton.style.display = 'inline-block';
+                
+                showGuestInterface();
+                showStatus('✅ יצאת מהמערכת בהצלחה', 'success');
+                
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            }
+        }
+
+        // הגדרת תאריך נוכחי
+        document.addEventListener('DOMContentLoaded', function() {
+            const sessionDateInput = document.getElementById('sessionDate');
+            if (sessionDateInput) {
+                sessionDateInput.value = new Date().toISOString().split('T')[0];
+            }
+        });
+
+        // פונקציות מודל כניסה
+        function openLoginModal() {
+            document.getElementById('loginModal').style.display = 'block';
+        }
+
+        function closeLoginModal() {
+            document.getElementById('loginModal').style.display = 'none';
+        }
+
+        function openRegisterModal() {
+            document.getElementById('registerModal').style.display = 'block';
+        }
+
+        function closeRegisterModal() {
+            document.getElementById('registerModal').style.display = 'none';
+        }
+
+        function switchToRegister() {
+            closeLoginModal();
+            openRegisterModal();
+        }
+
+        function switchToLogin() {
+            closeRegisterModal();
+            openLoginModal();
+        }
+
+        // Login Form Handler
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            const submitBtn = document.getElementById('loginSubmitBtn');
+            const messageDiv = document.getElementById('loginMessage');
+            
+            if (!email || !password) {
+                showLoginMessage('יש למלא את כל השדות', 'error');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'מתחבר...';
+            
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    showLoginMessage('✅ כניסה בהצלחה! טוען את המערכת...', 'success');
+                    
+                    localStorage.setItem('session_token', data.session_token);
+                    sessionToken = data.session_token;
+                    currentUser = data.user_info;
+                    
+                    updateUserInterface();
+                    
+                    setTimeout(() => {
+                        closeLoginModal();
+                        // מעבר לאפליקציה אחרי התחברות מוצלחת
+                        window.location.href = '/app';
+                    }, 1500);
+                } else {
+                    const data = await response.json();
+                    showLoginMessage(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בכניסה:', error);
+                showLoginMessage('❌ שגיאה בחיבור לשרת', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'כניסה למערכת';
+            }
+        });
+
+        // Register Form Handler
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fullName = document.getElementById('registerFullName').value.trim();
+            const email = document.getElementById('registerEmail').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const submitBtn = document.getElementById('registerSubmitBtn');
+            
+            if (!fullName || !email || !password) {
+                showRegisterMessage('יש למלא את כל השדות', 'error');
+                return;
+            }
+            
+            if (password.length < 6) {
+                showRegisterMessage('הסיסמה חייבת להכיל לפחות 6 תווים', 'error');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'נרשם...';
+            
+            try {
+                const response = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        full_name: fullName,
+                        email, 
+                        password 
+                    })
+                });
+                
+                if (response.ok) {
+                    showRegisterMessage('✅ הרשמה בהצלחה! עכשיו תוכל להתחבר', 'success');
+                    
+                    setTimeout(() => {
+                        document.getElementById('loginEmail').value = email;
+                        switchToLogin();
+                        showLoginMessage('🎉 הרשמה הושלמה! כעת התחבר עם הפרטים שלך', 'success');
+                    }, 2000);
+                } else {
+                    const data = await response.json();
+                    showRegisterMessage(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בהרשמה:', error);
+                showRegisterMessage('❌ שגיאה בחיבור לשרת', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'הירשם למערכת';
+            }
+        });
+
+        function showLoginMessage(message, type) {
+            const messageDiv = document.getElementById('loginMessage');
+            messageDiv.textContent = message;
+            messageDiv.style.display = 'block';
+            messageDiv.style.background = type === 'success' ? '#dcfce7' : '#fee2e2';
+            messageDiv.style.color = type === 'success' ? '#166534' : '#dc2626';
+            messageDiv.style.border = type === 'success' ? '1px solid #86efac' : '1px solid #fca5a5';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 3000);
+            }
+        }
+
+        function showRegisterMessage(message, type) {
+            const messageDiv = document.getElementById('registerMessage');
+            messageDiv.textContent = message;
+            messageDiv.style.display = 'block';
+            messageDiv.style.background = type === 'success' ? '#dcfce7' : '#fee2e2';
+            messageDiv.style.color = type === 'success' ? '#166534' : '#dc2626';
+            messageDiv.style.border = type === 'success' ? '1px solid #86efac' : '1px solid #fca5a5';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+            }
+        }
+
+        function handleFreeTranscriptionClick() {
+            if (!currentUser || !sessionToken) {
+                showStatus('🔐 יש להתחבר תחילה כדי להשתמש במערכת התמלול', 'error');
+                setTimeout(() => {
+                    openLoginModal();
+                }, 1000);
+                return;
+            }
+            
+            // מעבר לאפליקציה
+            window.location.href = '/app';
+        }
+
+        // פונקציות בחירת סוג קלט
+        function switchInputMode(mode) {
+            const audioModeBtn = document.getElementById('audioModeBtn');
+            const textModeBtn = document.getElementById('textModeBtn');
+            const audioInputSection = document.getElementById('audioInputSection');
+            const textInputSection = document.getElementById('textInputSection');
+            const whatsappInstructions = document.getElementById('whatsappInstructions');
+            const textConversionInstructions = document.getElementById('textConversionInstructions');
+            const transcribeBtn = document.getElementById('transcribeBtn');
+
+            if (mode === 'audio') {
+                audioModeBtn.classList.add('active');
+                textModeBtn.classList.remove('active');
+                audioInputSection.style.display = 'block';
+                textInputSection.style.display = 'none';
+                whatsappInstructions.style.display = 'block';
+                textConversionInstructions.style.display = 'none';
+                
+                transcribeBtn.textContent = '🎯 התחל תמלול';
+                transcribeBtn.disabled = true;
+                
+            } else if (mode === 'text') {
+                audioModeBtn.classList.remove('active');
+                textModeBtn.classList.add('active');
+                audioInputSection.style.display = 'none';
+                textInputSection.style.display = 'block';
+                whatsappInstructions.style.display = 'none';
+                textConversionInstructions.style.display = 'block';
+                
+                transcribeBtn.textContent = '🔧 עבד טקסט';
+                transcribeBtn.disabled = true;
+            }
+        }
+
+        function checkEncryptionMode() {
+            const qualityMode = document.getElementById('qualityMode').value;
+            const encryptionPasswordSection = document.getElementById('encryptionPasswordSection');
+            
+            if (qualityMode === 'hybrid-encrypted') {
+                encryptionPasswordSection.style.display = 'block';
+            } else {
+                encryptionPasswordSection.style.display = 'none';
+            }
+        }
+
+        function handleTranscription() {
+            showStatus('פונקציונליות התמלול תתווסף בקרוב...', 'loading');
+        }
+
+        // טעינה ראשונית
+        window.addEventListener('load', async () => {
+            const isAuthenticated = await checkAuth();
+            
+            if (isAuthenticated && currentUser) {
+                console.log('✅ משתמש מאומת - מציג רק את האפליקציה');
+                hideGuestInterface();
+            } else {
+                console.log('⚠️ משתמש לא מאומת - מציג ממשק אורח');
+                showGuestInterface();
+            }
+        });
+
+        // סגירת מודלים בלחיצה על הרקע
+        document.getElementById('loginModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('loginModal')) {
+                closeLoginModal();
+            }
+        });
+
+        document.getElementById('registerModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('registerModal')) {
+                closeRegisterModal();
+            }
+        });
+    </script>
+</body>
+</html>

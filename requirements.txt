@@ -1,0 +1,13 @@
+Flask==2.3.3
+requests
+werkzeug==2.3.7
+python-dotenv
+# הצפנה ואבטחה
+cryptography
+bcrypt
+# AssemblyAI SDK
+assemblyai
+# Google OAuth
+google-auth
+google-auth-oauthlib
+google-auth-httplib2

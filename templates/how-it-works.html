@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>איך המערכת עובדת - מערכת תמלול למטפלים</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%);
+            min-height: 100vh;
+            color: #1e293b;
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .navbar {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            box-shadow: 0 2px 20px rgba(99, 102, 241, 0.15);
+            padding: 15px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #6366f1;
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #6366f1;
+        }
+
+        .nav-links a.active {
+            color: #6366f1;
+            font-weight: 600;
+        }
+
+        .cta-button {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+            border: none;
+            cursor: pointer;
+        }
+
+        .cta-button:hover {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Main Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 30%, #bae6fd 60%, #7dd3fc 100%);
+            color: #0f172a;
+            padding: 80px 0;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(255, 255, 255, 0.8);
+        }
+
+        .hero p {
+            font-size: 1.3em;
+            margin-bottom: 40px;
+            opacity: 1;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.7);
+        }
+
+        /* Steps Section */
+        .steps-section {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .section-title h2 {
+            font-size: 2.5em;
+            color: #1e293b;
+            margin-bottom: 15px;
+        }
+
+        .section-title p {
+            font-size: 1.2em;
+            color: #64748b;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .steps-container {
+            margin-top: 60px;
+        }
+
+        .step-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 60px;
+            padding: 40px;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 20px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.08);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s ease;
+        }
+
+        .step-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.1), transparent);
+            transition: left 0.6s;
+        }
+
+        .step-item:hover::before {
+            left: 100%;
+        }
+
+        .step-item:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 25px 50px rgba(99, 102, 241, 0.15);
+            border-color: #6366f1;
+        }
+
+        .step-number {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-left: 40px;
+            flex-shrink: 0;
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 4px 8px rgba(99, 102, 241, 0.2));
+        }
+
+        .step-item:hover .step-number {
+            transform: scale(1.1) rotate(5deg);
+            filter: drop-shadow(0 8px 16px rgba(99, 102, 241, 0.3));
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h3 {
+            color: #1e293b;
+            font-size: 1.8em;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .step-content p {
+            color: #64748b;
+            font-size: 1.1em;
+            line-height: 1.7;
+            margin: 0;
+        }
+
+        /* Features Section */
+        .features-section {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            transition: all 0.4s ease;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.08);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 25px 50px rgba(99, 102, 241, 0.15);
+            border-color: #6366f1;
+        }
+
+        .feature-icon {
+            font-size: 3.5em;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 4px 8px rgba(99, 102, 241, 0.2));
+        }
+
+        .feature-card:hover .feature-icon {
+            transform: scale(1.1) rotate(5deg);
+            filter: drop-shadow(0 8px 16px rgba(99, 102, 241, 0.3));
+        }
+
+        .feature-card h3 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #1e293b;
+        }
+
+        .feature-card p {
+            color: #64748b;
+            line-height: 1.7;
+        }
+
+        /* Technology Section */
+        .technology-section {
+            padding: 80px 0;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            margin-top: 60px;
+        }
+
+        .tech-card {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+            transition: all 0.3s ease;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.08);
+        }
+
+        .tech-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(99, 102, 241, 0.15);
+            border-color: #6366f1;
+        }
+
+        .tech-icon {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+        }
+
+        .tech-card h4 {
+            color: #1e293b;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+
+        .tech-card p {
+            color: #64748b;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            padding: 80px 0;
+            text-align: center;
+            margin-top: 80px;
+        }
+
+        .cta-section h2 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+
+        .cta-section p {
+            font-size: 1.2em;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 18px 36px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 18px;
+            transition: all 0.3s;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn-primary:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #6366f1;
+            padding: 18px 36px;
+            border: 2px solid white;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 18px;
+            transition: all 0.3s;
+        }
+
+        .btn-secondary:hover {
+            background: #f8fafc;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .hero h1 {
+                font-size: 2.5em;
+            }
+            
+            .hero p {
+                font-size: 1.1em;
+            }
+            
+            .step-item {
+                flex-direction: column;
+                text-align: center;
+                padding: 30px 20px;
+            }
+            
+            .step-number {
+                margin-left: 0;
+                margin-bottom: 20px;
+                width: 80px;
+                height: 80px;
+                font-size: 2em;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .tech-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn-primary, .btn-secondary {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/" class="logo">🎤 תמלול מקצועי</a>
+            <ul class="nav-links">
+                <li><a href="/">דף הבית</a></li>
+                <li><a href="/feedback">המלצות</a></li>
+                <li><a href="/how-it-works" class="active">איך זה עובד</a></li>
+                <li><a href="/app">האפליקציה</a></li>
+            </ul>
+            
+            <a href="/app" class="cta-button">התחל עכשיו</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <h1>🔍 איך המערכת עובדת?</h1>
+            <p>גלו את הטכנולוגיה המתקדמת מאחורי מערכת התמלול החכמה שלנו</p>
+        </div>
+    </section>
+
+    <!-- Steps Section -->
+    <section class="steps-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>תהליך התמלול בחמישה שלבים פשוטים</h2>
+                <p>מהקלטה ועד לטופס טיפול מוכן - כל התהליך אוטומטי וחכם</p>
+            </div>
+            
+            <div class="steps-container">
+                <!-- שלב 1 -->
+                <div class="step-item">
+                    <div class="step-number" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">1</div>
+                    <div class="step-content">
+                        <h3>🎤 הקלטה או העלאה</h3>
+                        <p>הקלט ישירות דרך המיקרופון או העלה קובץ שמע קיים. המערכת תומכת בכל פורמטי השמע הנפוצים: MP3, WAV, M4A, WEBM, OGG, OPUS ועוד. ניתן גם להעביר קבצים ישירות מוואטסאפ או אפליקציות אחרות.</p>
+                    </div>
+                </div>
+
+                <!-- שלב 2 -->
+                <div class="step-item">
+                    <div class="step-number" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">2</div>
+                    <div class="step-content">
+                        <h3>🤖 תמלול חכם</h3>
+                        <p>המערכת מתמללת את השמע באמצעות בינה מלאכותית מתקדמת המותאמת במיוחד לעברית. תוכל לבחור בין מספר אפשרויות: תמלול מקומי (פרטי לחלוטין) עם Whisper או ivrit.ai, או תמלול בענן עם AssemblyAI לדיוק מקסימלי.</p>
+                    </div>
+                </div>
+
+                <!-- שלב 3 -->
+                <div class="step-item">
+                    <div class="step-number" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">3</div>
+                    <div class="step-content">
+                        <h3>✏️ תיקון אוטומטי</h3>
+                        <p>המערכת מתקנת אוטומטית שגיאות נפוצות בעברית, מוסיפה פיסוק נכון ומסדרת את הטקסט. אלגוריתמים מתקדמים מזהים ומתקנים כפילויות, מילות מילוי וטעויות דקדוק. תוכל גם לערוך ידנית ולהשתמש בכלי התיקון החכמים.</p>
+                    </div>
+                </div>
+
+                <!-- שלב 4 -->
+                <div class="step-item">
+                    <div class="step-number" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">4</div>
+                    <div class="step-content">
+                        <h3>📋 יצירת טפסים</h3>
+                        <p>המערכת מנתחת את התמלול ויוצרת אוטומטית טפסי טיפול מקצועיים. הטפסים כוללים סיכום הפגישה, נושאים עיקריים, המלצות טיפוליות ותוכנית המשך. הכל מסודר בפורמט מקצועי וניתן לעריכה.</p>
+                    </div>
+                </div>
+
+                <!-- שלב 5 -->
+                <div class="step-item">
+                    <div class="step-number" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">5</div>
+                    <div class="step-content">
+                        <h3>💾 שמירה מאובטחת</h3>
+                        <p>כל התמלולים נשמרים במחשב שלך בלבד (במצב מקומי) או בענן מוצפן (במצב היברידי) עם הצפנה דו-שכבתית. פרטיות מוחלטת, גישה נוחה לכל התיעוד שלך, וסנכרון בין מכשירים עם הסיסמה האישית שלך.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>🌟 יתרונות נוספים</h2>
+                <p>המערכת מציעה פתרון מקיף לכל צרכי התמלול והתיעוד של המטפל המודרני</p>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>מהירות</h3>
+                    <p>תמלול מהיר פי 10 מכתיבה ידנית. חיסכון של שעות עבודה בכל שבוע</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>דיוק</h3>
+                    <p>דיוק של 98% בתמלול עברית עם אלגוריתמים מתקדמים לתיקון שגיאות</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>אבטחה</h3>
+                    <p>הצפנה מתקדמת וחיסיון מוחלט. הנתונים נשארים אצלך או מוצפנים בענן</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💰</div>
+                    <h3>חיסכון</h3>
+                    <p>חיסכון משמעותי בעלויות תמלול והקלדה. החזר השקעה מהיר</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📱</div>
+                    <h3>נגישות</h3>
+                    <p>עובד על כל מכשיר - מחשב, טאבלט או סמארטפון. גישה מכל מקום</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>סנכרון</h3>
+                    <p>סנכרון אוטומטי בין מכשירים עם הצפנה מלאה. הנתונים שלך תמיד זמינים</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Technology Section -->
+    <section class="technology-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>🚀 הטכנולוגיה שמאחורי המערכת</h2>
+                <p>שילוב של טכנולוגיות מתקדמות לחוויית תמלול מושלמת</p>
+            </div>
+            
+            <div class="tech-grid">
+                <div class="tech-card">
+                    <div class="tech-icon">🧠</div>
+                    <h4>Whisper AI</h4>
+                    <p>מודל בינה מלאכותית מתקדם של OpenAI לתמלול מדויק</p>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-icon">🏆</div>
+                    <h4>ivrit.ai</h4>
+                    <p>מודל מותאם במיוחד לעברית לדיוק מקסימלי</p>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-icon">☁️</div>
+                    <h4>AssemblyAI</h4>
+                    <p>שירות תמלול בענן מתקדם עם דיוק גבוה במיוחד</p>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-icon">🔐</div>
+                    <h4>הצפנה AES-256</h4>
+                    <p>הצפנה צבאית לאבטחת הנתונים הרגישים שלך</p>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-icon">⚙️</div>
+                    <h4>עיבוד מקומי</h4>
+                    <p>אפשרות לעיבוד מלא במחשב שלך ללא שליחה לענן</p>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-icon">📊</div>
+                    <h4>ניתוח NLP</h4>
+                    <p>עיבוד שפה טבעית ליצירת טפסי טיפול אוטומטיים</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <h2>🎯 מוכנים לחוות את המהפכה?</h2>
+            <p>התחילו להשתמש במערכת התמלול המתקדמת ביותר למטפלים</p>
+            <div class="cta-buttons">
+                <a href="/app" class="btn-primary">התחילו עכשיו חינם</a>
+                <a href="/feedback" class="btn-secondary">קראו המלצות</a>
+            </div>
+        </div>
+    </section>
+</body>
+</html>
