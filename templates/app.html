@@ -2279,88 +2279,65 @@
             }
         }
 
-        // פונקציות שמירה היברידית (מקומי + מוצפן בענן) - עם בדיקת מגבלות
+        // פונקציות שמירה בשרת (במקום localStorage) - עם בדיקת מגבלות
         async function saveSessionLocally() {
             if (!currentPatientName || !correctedTranscript) {
                 showStatus('אין תוכן לשמירה', 'error');
                 return;
             }
 
-            console.log('💾 מתחיל תהליך שמירת סשן עבור:', currentPatientName);
-
-            // בדיקת מגבלות לפני שמירה - כאן המקום הנכון!
-            const canSave = await checkLimitsBeforeSaving(currentPatientName);
-            if (!canSave) {
-                console.log('❌ שמירה נחסמה בגלל מגבלות');
-                return;
-            }
+            console.log('💾 מתחיל תהליך שמירת סשן בשרת עבור:', currentPatientName);
 
             const sessionDate = document.getElementById('sessionDate').value;
-            const timestamp = new Date().toISOString();
             
             // יצירת אובייקט הסשן
             const sessionData = {
                 patient_name: currentPatientName,
                 session_date: sessionDate,
-                timestamp: timestamp,
                 original_transcript: originalTranscript,
                 corrected_transcript: correctedTranscript,
-                word_count: correctedTranscript.split(/\s+/).filter(word => word.length > 0).length,
-                char_count: correctedTranscript.length
+                edited_transcript: correctedTranscript,
+                audio_filename: document.getElementById('audioFile').files[0]?.name || 'direct_text.txt',
+                quality_mode: document.getElementById('qualityMode').value,
+                replace_existing: false
             };
 
-            console.log('✅ כל הבדיקות עברו - ממשיך בשמירה');
-
-            // שמירה מקומית (localStorage + הורדה)
-            saveToLocalStorage(sessionData);
-            downloadSessionFile(sessionData);
-
-            // עדכון מונה סשנים אחרי שמירה מוצלחת
             try {
-                await updateSessionCounter();
-                console.log('✅ מונה סשנים עודכן אחרי שמירה');
-            } catch (counterError) {
-                console.log('⚠️ שגיאה בעדכון מונה, אבל השמירה הצליחה:', counterError);
-            }
+                showStatus('💾 שומר סשן בשרת...', 'loading');
 
-            // עדכון מיידי של התצוגה אחרי שמירה
-            updateLocalSessionsUI();
-            updatePatientsLimitDisplay();
+                const response = await fetch('/save-edited-text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionToken}`
+                    },
+                    body: JSON.stringify(sessionData)
+                });
 
-            // בדיקה אם יש מפתח הצפנה פעיל
-            const encryptionPassword = document.getElementById('encryptionPassword');
-            const qualityMode = document.getElementById('qualityMode').value;
-            
-            if (qualityMode === 'hybrid-encrypted' && encryptionPassword && encryptionPassword.value.trim()) {
-                // שמירה מוצפנת נוספת בענן
-                try {
-                    showStatus('💾 שומר מקומית + מסנכרן לענן מוצפן...', 'loading');
+                const result = await response.json();
+
+                if (response.ok) {
+                    showStatus('✅ הסשן נשמר בשרת בהצלחה!', 'success');
                     
-                    const response = await fetch('/encryption/save-session', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${sessionToken}`
-                        },
-                        body: JSON.stringify({
-                            session_data: sessionData,
-                            encryption_key: encryptionPassword.value.trim()
-                        })
-                    });
-
-                    const result = await response.json();
+                    // רענון רשימת המטופלים
+                    await loadPatients();
                     
-                    if (response.ok) {
-                        showStatus('✅ הסשן נשמר מקומית וסונכרן לענן מוצפן!', 'success');
-                    } else {
-                        showStatus(`✅ נשמר מקומית, אך שגיאה בסנכרון: ${result.error}`, 'success');
-                    }
-                } catch (error) {
-                    console.error('שגיאה בסנכרון לענן:', error);
-                    showStatus('✅ הסשן נשמר מקומית (שגיאה בסנכרון לענן)', 'success');
+                    // עדכון מידע המגבלות
+                    await checkUserLimits();
+                    
+                    console.log('✅ סשן נשמר בשרת:', result);
+                } else if (response.status === 402) {
+                    // Payment Required - הגעה למגבלה
+                    showStatus('⚠️ הגעת למגבלה', 'error');
+                    setTimeout(() => {
+                        showUpgradeModal(result);
+                    }, 1500);
+                } else {
+                    showStatus(`שגיאה בשמירה: ${result.error}`, 'error');
                 }
-            } else {
-                showStatus('✅ הסשן נשמר מקומית במחשב!', 'success');
+            } catch (error) {
+                console.error('שגיאה בשמירת סשן:', error);
+                showStatus('שגיאה בחיבור לשרת', 'error');
             }
         }
 
@@ -3059,8 +3036,295 @@
         }
 
         async function loadPatients() {
-            // פונקציה לטעינת רשימת מטופלים מקומיים
-            updateLocalSessionsUI();
+            // פונקציה לטעינת רשימת מטופלים מהשרת
+            if (!currentUser || !sessionToken) {
+                console.log('❌ אין משתמש מחובר - לא יכול לטעון מטופלים');
+                return;
+            }
+
+            try {
+                const response = await fetch('/patients', {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('👥 מטופלים נטענו מהשרת:', data);
+                    
+                    // עדכון התצוגה עם הנתונים מהשרת
+                    displayPatientsFromServer(data.patients);
+                    
+                    // עדכון מידע מגבלות
+                    if (data.patient_limits) {
+                        updatePatientsLimitFromServer(data.patient_limits);
+                    }
+                } else {
+                    console.log('⚠️ שגיאה בטעינת מטופלים מהשרת');
+                }
+            } catch (error) {
+                console.error('שגיאה בטעינת מטופלים:', error);
+            }
+        }
+
+        // פונקציה להצגת מטופלים מהשרת
+        function displayPatientsFromServer(patients) {
+            const therapistSection = document.getElementById('therapistSection');
+            if (!therapistSection) return;
+
+            // מציאת או יצירת אזור המטופלים
+            let patientsContainer = document.getElementById('serverPatientsContainer');
+            if (!patientsContainer) {
+                patientsContainer = document.createElement('div');
+                patientsContainer.id = 'serverPatientsContainer';
+                patientsContainer.innerHTML = `
+                    <h3 style="color: #1e293b; margin: 30px 0 20px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">
+                        👥 מטופלים בשרת
+                    </h3>
+                    <div id="serverPatientsList" class="patients-list"></div>
+                `;
+                therapistSection.appendChild(patientsContainer);
+            }
+
+            const patientsList = document.getElementById('serverPatientsList');
+            patientsList.innerHTML = '';
+
+            if (patients && patients.length > 0) {
+                patients.forEach(patient => {
+                    const patientCard = document.createElement('div');
+                    patientCard.className = 'patient-card';
+                    patientCard.style.cursor = 'pointer';
+                    patientCard.style.position = 'relative';
+                    
+                    patientCard.innerHTML = `
+                        <button class="delete-patient-btn" onclick="confirmDeleteServerPatient('${patient.name.replace(/'/g, "\\'")}', event)" title="מחק מטופל">
+                            🗑️
+                        </button>
+                        <h3>${patient.name}</h3>
+                        <p>סשנים: ${patient.session_count}</p>
+                        <small>לחץ לצפייה בסשנים</small>
+                    `;
+                    
+                    patientCard.addEventListener('click', (e) => {
+                        if (!e.target.classList.contains('delete-patient-btn')) {
+                            loadPatientSessions(patient.name);
+                        }
+                    });
+                    
+                    patientsList.appendChild(patientCard);
+                });
+                
+                patientsContainer.style.display = 'block';
+            } else {
+                patientsContainer.style.display = 'none';
+            }
+        }
+
+        // פונקציה לטעינת סשנים של מטופל מהשרת
+        async function loadPatientSessions(patientName) {
+            try {
+                const response = await fetch(`/patient/${encodeURIComponent(patientName)}/sessions`, {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showServerPatientSessions(patientName, data.sessions);
+                } else {
+                    showStatus('שגיאה בטעינת סשנים', 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בטעינת סשנים:', error);
+                showStatus('שגיאה בחיבור לשרת', 'error');
+            }
+        }
+
+        // פונקציה להצגת סשנים מהשרת
+        function showServerPatientSessions(patientName, sessions) {
+            const modal = document.getElementById('sessionsModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const sessionsList = document.getElementById('sessionsList');
+            
+            modalTitle.textContent = `סשנים של ${patientName} (מהשרת)`;
+            sessionsList.innerHTML = '';
+            
+            if (sessions && sessions.length > 0) {
+                sessions.forEach((session, index) => {
+                    const sessionItem = document.createElement('div');
+                    sessionItem.className = 'session-item';
+                    sessionItem.style.position = 'relative';
+                    sessionItem.innerHTML = `
+                        <button class="delete-session-btn" onclick="confirmDeleteServerSession('${patientName.replace(/'/g, "\\'")}', '${session.filename.replace(/'/g, "\\'")}', event)" title="מחק סשן">
+                            🗑️
+                        </button>
+                        <h4>סשן מתאריך ${session.date || 'לא ידוע'}</h4>
+                        <p>מילים: ${session.word_count || 0}</p>
+                        <p>קובץ שמע: ${session.audio_filename || 'לא ידוע'}</p>
+                        <small>נוצר: ${session.created_at || 'לא ידוע'}</small>
+                    `;
+                    
+                    sessionItem.addEventListener('click', (e) => {
+                        if (!e.target.classList.contains('delete-session-btn')) {
+                            loadSessionContent(patientName, session.filename);
+                        }
+                    });
+                    
+                    sessionsList.appendChild(sessionItem);
+                });
+            } else {
+                sessionsList.innerHTML = '<p style="text-align: center; color: #6b7280;">אין סשנים עבור מטופל זה</p>';
+            }
+            
+            modal.style.display = 'block';
+        }
+
+        // פונקציה לטעינת תוכן סשן מהשרת
+        async function loadSessionContent(patientName, sessionFilename) {
+            try {
+                const response = await fetch(`/patient/${encodeURIComponent(patientName)}/session/${encodeURIComponent(sessionFilename)}`, {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const sessionData = await response.json();
+                    showServerSessionContent(patientName, sessionData);
+                } else {
+                    showStatus('שגיאה בטעינת תוכן הסשן', 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בטעינת תוכן סשן:', error);
+                showStatus('שגיאה בחיבור לשרת', 'error');
+            }
+        }
+
+        // פונקציה להצגת תוכן סשן מהשרת
+        function showServerSessionContent(patientName, sessionData) {
+            const modal = document.getElementById('sessionContentModal');
+            const title = document.getElementById('sessionContentTitle');
+            const body = document.getElementById('sessionContentBody');
+            
+            title.textContent = `סשן ${patientName} - ${sessionData.session_date || 'לא ידוע'}`;
+            
+            const transcript = sessionData.corrected_transcript || sessionData.edited_transcript || sessionData.original_transcript || 'אין תוכן';
+            
+            body.innerHTML = `
+                <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                    <h4>פרטי הסשן:</h4>
+                    <p><strong>מטופל:</strong> ${sessionData.patient_name || patientName}</p>
+                    <p><strong>תאריך:</strong> ${sessionData.session_date || 'לא ידוע'}</p>
+                    <p><strong>נוצר:</strong> ${sessionData.created_at || 'לא ידוע'}</p>
+                    <p><strong>מילים:</strong> ${sessionData.word_count || 0}</p>
+                    <p><strong>קובץ שמע:</strong> ${sessionData.audio_filename || 'לא ידוע'}</p>
+                </div>
+                <div style="background: white; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb;">
+                    <h4>תוכן הסשן:</h4>
+                    <div style="white-space: pre-wrap; line-height: 1.6; direction: rtl;">${transcript}</div>
+                </div>
+                <div style="margin-top: 20px; text-align: center;">
+                    <button onclick="copySessionText('${transcript.replace(/'/g, "\\'")}')" class="action-btn copy-btn">📋 העתק טקסט</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+
+        // פונקציות מחיקה מהשרת
+        function confirmDeleteServerPatient(patientName, event) {
+            event.stopPropagation();
+            
+            const message = `האם אתה בטוח שברצונך למחוק את המטופל "<strong>${patientName}</strong>" וכל הסשנים שלו מהשרת?<br><br>פעולה זו לא ניתנת לביטול!`;
+            
+            showDeleteConfirmModal('מחיקת מטופל מהשרת', message, () => {
+                deleteServerPatient(patientName);
+            });
+        }
+
+        function confirmDeleteServerSession(patientName, sessionFilename, event) {
+            event.stopPropagation();
+            
+            const message = `האם אתה בטוח שברצונך למחוק את הסשן הזה של "<strong>${patientName}</strong>" מהשרת?<br><br>פעולה זו לא ניתנת לביטול!`;
+            
+            showDeleteConfirmModal('מחיקת סשן מהשרת', message, () => {
+                deleteServerSession(patientName, sessionFilename);
+            });
+        }
+
+        // מחיקת מטופל מהשרת
+        async function deleteServerPatient(patientName) {
+            try {
+                showStatus('מוחק מטופל מהשרת...', 'loading');
+                
+                const response = await fetch(`/patient/${encodeURIComponent(patientName)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    showStatus(`✅ המטופל "${patientName}" נמחק מהשרת בהצלחה`, 'success');
+                    
+                    // רענון רשימת המטופלים
+                    await loadPatients();
+                    
+                    // עדכון מידע המגבלות
+                    await checkUserLimits();
+                    
+                    // סגירת מודלים
+                    closeSessions();
+                } else {
+                    const error = await response.json();
+                    showStatus(`שגיאה במחיקת מטופל: ${error.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה במחיקת מטופל מהשרת:', error);
+                showStatus('שגיאה בחיבור לשרת', 'error');
+            }
+        }
+
+        // מחיקת סשן מהשרת
+        async function deleteServerSession(patientName, sessionFilename) {
+            try {
+                showStatus('מוחק סשן מהשרת...', 'loading');
+                
+                const response = await fetch('/delete-session', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionToken}`
+                    },
+                    body: JSON.stringify({
+                        patient_name: patientName,
+                        session_filename: sessionFilename
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    showStatus('✅ הסשן נמחק מהשרת בהצלחה', 'success');
+                    
+                    // רענון רשימת המטופלים
+                    await loadPatients();
+                    
+                    // עדכון מידע המגבלות
+                    await checkUserLimits();
+                    
+                    // רענון מודל הסשנים
+                    await loadPatientSessions(patientName);
+                } else {
+                    const error = await response.json();
+                    showStatus(`שגיאה במחיקת סשן: ${error.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה במחיקת סשן מהשרת:', error);
+                showStatus('שגיאה בחיבור לשרת', 'error');
+            }
         }
 
         // פונקציות בחירת מצב קלט
