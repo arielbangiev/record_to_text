@@ -1239,13 +1239,14 @@
             <ul class="nav-links">
                 <li><a href="#features">יתרונות</a></li>
                 <li><a href="#pricing">מחירים</a></li>
-                <li><a href="#testimonials">המלצות</a></li>
-                <li><a href="#contact">צור קשר</a></li>
             </ul>
             
             <!-- User Info Section -->
             <div id="userSection" style="display: none;">
                 <div style="display: flex; align-items: center; gap: 15px;">
+                    <a href="/app" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3); transition: all 0.3s ease; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(16, 185, 129, 0.3)'">
+                        🎤 לאפליקציה
+                    </a>
                     <span id="userGreeting" style="color: #1e293b; font-weight: 600; font-size: 16px;"></span>
                     <button id="logoutBtn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.3)'">🚪 יציאה</button>
                 </div>
@@ -1511,6 +1512,9 @@
             </form>
             
             <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+                <p style="color: #6b7280; margin: 0 0 10px 0;">
+                    <button onclick="handleForgotPassword()" style="background: none; border: none; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">שכחתי סיסמה</button>
+                </p>
                 <p style="color: #6b7280; margin: 0;">
                     אין לך חשבון? 
                     <button onclick="switchToRegister()" style="background: none; border: none; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">הירשם כאן</button>
@@ -1566,10 +1570,33 @@
         let currentUser = null;
         let sessionToken = null;
 
+        // פונקציות עזר לעבודה עם cookies
+        function setCookie(name, value, days) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
+        }
+
+        function getCookie(name) {
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for (let i = 0; i < ca.length; i++) {
+                let c = ca[i];
+                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+            }
+            return null;
+        }
+
+        function deleteCookie(name) {
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+        }
+
         // בדיקת אימות בטעינת הדף
         async function checkAuth() {
             try {
-                sessionToken = localStorage.getItem('session_token');
+                // בדיקת session token מ-localStorage או מ-cookies
+                sessionToken = localStorage.getItem('session_token') || getCookie('session_token');
                 
                 if (!sessionToken) {
                     console.log('אין session token - מציג ממשק אורח');
@@ -1685,7 +1712,9 @@
             } catch (error) {
                 console.error('שגיאה ביציאה:', error);
             } finally {
+                // מחיקת session token מכל המקומות
                 localStorage.removeItem('session_token');
+                deleteCookie('session_token');
                 sessionToken = null;
                 currentUser = null;
                 
@@ -1769,7 +1798,9 @@
                     const data = await response.json();
                     showLoginMessage('✅ כניסה בהצלחה! טוען את המערכת...', 'success');
                     
+                    // שמירת session token גם ב-localStorage וגם ב-cookies
                     localStorage.setItem('session_token', data.session_token);
+                    setCookie('session_token', data.session_token, 7); // 7 ימים
                     sessionToken = data.session_token;
                     currentUser = data.user_info;
                     
@@ -1966,6 +1997,134 @@
                 showGuestInterface();
             }
         });
+
+        // פונקציה למעבר לדף סנכרון
+        async function goToSyncDashboard() {
+            if (!currentUser || !sessionToken) {
+                showStatus('🔐 יש להתחבר תחילה כדי לגשת לדף הסנכרון', 'error');
+                setTimeout(() => {
+                    openLoginModal();
+                }, 1000);
+                return;
+            }
+            
+            // הצגת הודעת טעינה
+            showStatus('🔄 טוען דף סנכרון...', 'loading');
+            
+            try {
+                // בדיקת אימות לפני מעבר
+                const response = await fetch('/auth/verify', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    // מעבר לדף הסנכרון
+                    window.location.href = '/sync-dashboard';
+                } else {
+                    // אימות נכשל - צריך להתחבר מחדש
+                    localStorage.removeItem('session_token');
+                    deleteCookie('session_token');
+                    sessionToken = null;
+                    currentUser = null;
+                    showLoginButton();
+                    showStatus('🔐 נדרש אימות מחדש', 'error');
+                    setTimeout(() => {
+                        openLoginModal();
+                    }, 1000);
+                }
+            } catch (error) {
+                console.error('שגיאה בבדיקת אימות לסנכרון:', error);
+                showStatus('❌ שגיאה בחיבור לשרת', 'error');
+            }
+        }
+
+        // פונקציה לטיפול בשכחת סיסמה
+        async function handleForgotPassword() {
+            const email = document.getElementById('loginEmail').value.trim();
+            
+            if (!email) {
+                showLoginMessage('יש להזין כתובת אימייל תחילה', 'error');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('loginSubmitBtn');
+            const originalText = submitBtn.textContent;
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'שולח בקשת איפוס...';
+            
+            try {
+                const response = await fetch('/auth/forgot-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // במצב פיתוח - מציג את הטוקן
+                    if (data.reset_token) {
+                        const newPassword = prompt('הזן סיסמה חדשה (לפחות 6 תווים):');
+                        if (newPassword && newPassword.length >= 6) {
+                            await resetPasswordWithToken(data.reset_token, newPassword);
+                        } else {
+                            showLoginMessage('סיסמה חדשה חייבת להכיל לפחות 6 תווים', 'error');
+                        }
+                    } else {
+                        showLoginMessage('✅ ' + data.message, 'success');
+                    }
+                } else {
+                    const data = await response.json();
+                    showLoginMessage(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה בבקשת איפוס סיסמה:', error);
+                showLoginMessage('❌ שגיאה בחיבור לשרת', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+        }
+        
+        // פונקציה לאיפוס סיסמה עם טוקן
+        async function resetPasswordWithToken(token, newPassword) {
+            try {
+                const response = await fetch('/auth/reset-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        token: token,
+                        new_password: newPassword 
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    showLoginMessage('✅ ' + data.message, 'success');
+                    
+                    // ניקוי השדות
+                    document.getElementById('loginPassword').value = '';
+                    
+                    setTimeout(() => {
+                        showLoginMessage('💡 כעת תוכל להתחבר עם הסיסמה החדשה', 'success');
+                    }, 2000);
+                } else {
+                    const data = await response.json();
+                    showLoginMessage(`❌ ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('שגיאה באיפוס סיסמה:', error);
+                showLoginMessage('❌ שגיאה בחיבור לשרת', 'error');
+            }
+        }
 
         // סגירת מודלים בלחיצה על הרקע
         document.getElementById('loginModal').addEventListener('click', (e) => {

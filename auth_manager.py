@@ -507,16 +507,28 @@ class AuthManager:
             if result:
                 free_sessions_used, free_sessions_limit, subscription_type, payment_status = result
                 
+                # וידוא שהערכים לא null
+                if free_sessions_used is None:
+                    free_sessions_used = 0
+                if free_sessions_limit is None:
+                    free_sessions_limit = self.free_max_sessions
+                
+                print(f"🔍 בדיקת מגבלת סשנים עבור משתמש {user_id}: {free_sessions_used}/{free_sessions_limit}")
+                
                 # מנוי בתשלום = ללא הגבלה
                 if subscription_type in ['premium', 'professional'] and payment_status == 'paid':
+                    print(f"✅ מנוי בתשלום - ללא הגבלה")
                     return True, free_sessions_used, -1, 'paid'
                 
-                # בדיקת מגבלת סשנים חינמיים
+                # בדיקת מגבלת סשנים חינמיים - רק אם באמת הגיע למגבלה
                 if free_sessions_used >= free_sessions_limit:
+                    print(f"❌ הגיע למגבלת סשנים: {free_sessions_used} >= {free_sessions_limit}")
                     return False, free_sessions_used, free_sessions_limit, 'limit_reached'
                 
+                print(f"✅ יש עוד סשנים זמינים: {free_sessions_limit - free_sessions_used}")
                 return True, free_sessions_used, free_sessions_limit, 'trial'
             
+            print(f"❌ לא נמצא משתמש {user_id}")
             return False, 0, 0, 'error'
             
         except Exception as e:
@@ -612,6 +624,26 @@ class AuthManager:
             
         except Exception as e:
             print(f"❌ שגיאה בעדכון מונה סשנים חינמיים: {str(e)}")
+            return False
+    
+    def reset_free_sessions_counter(self, user_id):
+        """איפוס מונה סשנים חינמיים (לפתרון בעיות)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE users SET free_sessions_used = 0 WHERE id = ?
+            ''', (user_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ מונה סשנים חינמיים אופס עבור משתמש {user_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ שגיאה באיפוס מונה סשנים חינמיים: {str(e)}")
             return False
     
     def upgrade_to_premium(self, user_id, payment_method='manual'):
@@ -816,7 +848,7 @@ class AuthManager:
             return []
 
 def require_auth(f):
-    """דקורטור להרישת אימות"""
+    """דקורטור להרישת אימות - מחזיר JSON error"""
     from functools import wraps
     from flask import jsonify, request
     
@@ -846,6 +878,47 @@ def require_auth(f):
                 'usage_count': usage_count,
                 'usage_limit': usage_limit
             }), 429
+        
+        # הוספת מידע המשתמש לבקשה
+        request.current_user = user_data
+        
+        return f(*args, **kwargs)
+    
+    return decorated_function
+
+def require_auth_html(f):
+    """דקורטור להרישת אימות לדפי HTML - מפנה לדף כניסה"""
+    from functools import wraps
+    from flask import redirect, request, render_template
+    
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_manager = AuthManager()
+        
+        # בדיקת session token
+        session_token = request.headers.get('Authorization')
+        if session_token and session_token.startswith('Bearer '):
+            session_token = session_token[7:]
+        else:
+            session_token = request.cookies.get('session_token')
+        
+        if not session_token:
+            # הפניה לדף כניסה במקום JSON error
+            return redirect('/login')
+        
+        is_valid, user_data = auth_manager.verify_session(session_token)
+        if not is_valid:
+            # הפניה לדף כניסה במקום JSON error
+            return redirect('/login')
+        
+        # בדיקת מגבלת שימוש
+        can_use, usage_count, usage_limit = auth_manager.check_usage_limit(user_data['user_id'])
+        if not can_use:
+            # הצגת דף שגיאה במקום JSON
+            return render_template('error.html', 
+                                 error_title='הגעת למגבלת השימוש',
+                                 error_message=f'הגעת למגבלת השימוש החודשית ({usage_count}/{usage_limit})',
+                                 show_upgrade=True), 429
         
         # הוספת מידע המשתמש לבקשה
         request.current_user = user_data

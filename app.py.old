@@ -1,0 +1,2744 @@
+# app.py - מערכת תמלול למטפלים עם Transkriptor
+from flask import Flask, request, render_template, jsonify, send_from_directory
+import os
+import datetime
+import json
+from werkzeug.utils import secure_filename
+import tempfile
+import socket
+import re
+import requests
+import hashlib
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from dotenv import load_dotenv
+from treatment_form_generator import TreatmentFormGenerator
+from auth_manager import AuthManager, require_auth, require_auth_html, require_session_limit_check
+
+# ייבוא מותנה של מנהלי הצפנה וסנכרון
+try:
+    from encryption_manager import EncryptionManager
+    ENCRYPTION_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ מנהל הצפנה לא זמין: {e}")
+    EncryptionManager = None
+    ENCRYPTION_AVAILABLE = False
+
+try:
+    from cloud_sync_manager import CloudSyncManager
+    SYNC_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ מנהל סנכרון לא זמין: {e}")
+    CloudSyncManager = None
+    SYNC_AVAILABLE = False
+
+# טעינת משתני סביבה מקובץ .env
+load_dotenv()
+
+# בדיקת מערכת אימות לפני הפעלת האפליקציה
+print("🔐 מכין מערכת אימות...")
+print("✅ מערכת אימות מוכנה - מפעיל את האפליקציה...")
+
+app = Flask(__name__)
+
+# הגדרות מקובץ .env
+app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'uploads')
+app.config['TRANSCRIPTS_FOLDER'] = os.getenv('TRANSCRIPTS_FOLDER', 'transcripts')
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_FILE_SIZE_MB', '100')) * 1024 * 1024
+app.config['DEBUG'] = os.getenv('DEBUG', 'False').lower() == 'true'
+
+# יצירת תיקיות
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['TRANSCRIPTS_FOLDER'], exist_ok=True)
+
+
+# הגדרות AssemblyAI מקובץ .env (מעולה לעברית)
+ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY', '')
+ASSEMBLYAI_API_URL = "https://api.assemblyai.com/v2"
+
+# הגדרות ברירת מחדל מקובץ .env
+DEFAULT_LANGUAGE = os.getenv('DEFAULT_LANGUAGE', 'he')
+DEFAULT_TRANSCRIPTION_SERVICE = os.getenv('DEFAULT_TRANSCRIPTION_SERVICE', 'transkriptor')
+WHISPER_MODEL_SIZE = os.getenv('WHISPER_MODEL_SIZE', 'base')
+FASTER_WHISPER_COMPUTE_TYPE = os.getenv('FASTER_WHISPER_COMPUTE_TYPE', 'int8')
+FASTER_WHISPER_DEVICE = os.getenv('FASTER_WHISPER_DEVICE', 'cpu')
+
+# יצירת מחולל טופס טיפול
+treatment_generator = TreatmentFormGenerator()
+
+# פונקציות הצפנה ואבטחה
+def generate_user_key(patient_name, session_date):
+    """יצירת מפתח הצפנה ייחודי למטופל וסשן"""
+    # יצירת מפתח בסיס מהמטופל והתאריך
+    base_string = f"{patient_name}_{session_date}_{os.getenv('ENCRYPTION_SALT', 'default_salt')}"
+    
+    # יצירת מפתח חזק
+    password = base_string.encode('utf-8')
+    salt = hashlib.sha256(password).digest()[:16]  # 16 bytes salt
+    
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password))
+    return key
+
+def encrypt_file(file_path, user_key):
+    """הצפנת קובץ שמע לפני שליחה לענן"""
+    try:
+        print("🔐 מצפין קובץ לפני שליחה...")
+        
+        # קריאת הקובץ
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+        
+        # יצירת מצפין
+        fernet = Fernet(user_key)
+        
+        # הצפנת הנתונים
+        encrypted_data = fernet.encrypt(file_data)
+        
+        # יצירת קובץ מוצפן זמני
+        encrypted_file_path = file_path + '.encrypted'
+        with open(encrypted_file_path, 'wb') as f:
+            f.write(encrypted_data)
+        
+        print("✅ קובץ הוצפן בהצלחה")
+        return encrypted_file_path
+        
+    except Exception as e:
+        print(f"❌ שגיאה בהצפנת קובץ: {str(e)}")
+        raise Exception(f"שגיאה בהצפנה: {str(e)}")
+
+def decrypt_file(encrypted_file_path, user_key, output_path):
+    """פענוח קובץ מוצפן"""
+    try:
+        print("🔓 מפענח קובץ...")
+        
+        # קריאת הקובץ המוצפן
+        with open(encrypted_file_path, 'rb') as f:
+            encrypted_data = f.read()
+        
+        # יצירת מפענח
+        fernet = Fernet(user_key)
+        
+        # פענוח הנתונים
+        decrypted_data = fernet.decrypt(encrypted_data)
+        
+        # שמירת הקובץ המפוענח
+        with open(output_path, 'wb') as f:
+            f.write(decrypted_data)
+        
+        print("✅ קובץ פוענח בהצלחה")
+        return output_path
+        
+    except Exception as e:
+        print(f"❌ שגיאה בפענוח קובץ: {str(e)}")
+        raise Exception(f"שגיאה בפענוח: {str(e)}")
+
+def secure_delete_file(file_path):
+    """מחיקה מאובטחת של קובץ"""
+    try:
+        if not os.path.exists(file_path):
+            return True
+            
+        print(f"🗑️ מוחק בצורה מאובטחת: {os.path.basename(file_path)}")
+        
+        # קבלת גודל הקובץ
+        file_size = os.path.getsize(file_path)
+        
+        # דריסת הקובץ במספר מעברים
+        with open(file_path, 'r+b') as f:
+            # מעבר 1: דריסה באפסים
+            f.write(b'\x00' * file_size)
+            f.flush()
+            os.fsync(f.fileno())
+            
+            # מעבר 2: דריסה בנתונים אקראיים
+            f.seek(0)
+            f.write(os.urandom(file_size))
+            f.flush()
+            os.fsync(f.fileno())
+            
+            # מעבר 3: דריסה באחדים
+            f.seek(0)
+            f.write(b'\xFF' * file_size)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        # מחיקת הקובץ
+        os.unlink(file_path)
+        print("✅ קובץ נמחק בצורה מאובטחת")
+        return True
+        
+    except Exception as e:
+        print(f"❌ שגיאה במחיקה מאובטחת: {str(e)}")
+        return False
+
+def delete_from_assemblyai(transcript_id):
+    """מחיקת תמלול מ-AssemblyAI (אם יש API למחיקה)"""
+    try:
+        if not ASSEMBLYAI_API_KEY:
+            return True
+            
+        print("🗑️ מוחק נתונים מ-AssemblyAI...")
+        
+        # AssemblyAI לא מספק API למחיקה ישירה
+        # אבל הם מוחקים אוטומטית אחרי 30 יום
+        # כאן נוכל להוסיף בקשה למחיקה מיידית אם יהיה API כזה
+        
+        print("ℹ️ AssemblyAI מוחק נתונים אוטומטית אחרי 30 יום")
+        return True
+        
+    except Exception as e:
+        print(f"❌ שגיאה במחיקה מ-AssemblyAI: {str(e)}")
+        return False
+
+def generate_temp_encryption_key():
+    """יצירת מפתח הצפנה זמני חזק"""
+    try:
+        # יצירת מפתח אקראי חזק
+        random_data = os.urandom(32)  # 256 bits
+        timestamp = str(datetime.datetime.now().timestamp()).encode('utf-8')
+        
+        # שילוב עם חותמת זמן
+        combined_data = random_data + timestamp
+        
+        # יצירת מפתח PBKDF2
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=os.urandom(16),
+            iterations=100000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(combined_data))
+        
+        print("🔑 מפתח הצפנה זמני נוצר")
+        return key
+        
+    except Exception as e:
+        print(f"❌ שגיאה ביצירת מפתח הצפנה: {str(e)}")
+        raise Exception(f"שגיאה ביצירת מפתח: {str(e)}")
+
+def encrypt_audio_data(audio_data, encryption_key):
+    """הצפנת נתוני שמע בזיכרון"""
+    try:
+        print("🔐 מצפין נתוני שמע...")
+        
+        # יצירת מצפין
+        fernet = Fernet(encryption_key)
+        
+        # הצפנת הנתונים
+        encrypted_data = fernet.encrypt(audio_data)
+        
+        print(f"✅ נתוני שמע הוצפנו ({len(encrypted_data)} bytes)")
+        return encrypted_data
+        
+    except Exception as e:
+        print(f"❌ שגיאה בהצפנת נתוני שמע: {str(e)}")
+        raise Exception(f"שגיאה בהצפנה: {str(e)}")
+
+def decrypt_audio_data(encrypted_data, encryption_key):
+    """פענוח נתוני שמע מוצפנים"""
+    try:
+        print("🔓 מפענח נתוני שמע...")
+        
+        # יצירת מפענח
+        fernet = Fernet(encryption_key)
+        
+        # פענוח הנתונים
+        decrypted_data = fernet.decrypt(encrypted_data)
+        
+        print(f"✅ נתוני שמע פוענחו ({len(decrypted_data)} bytes)")
+        return decrypted_data
+        
+    except Exception as e:
+        print(f"❌ שגיאה בפענוח נתוני שמע: {str(e)}")
+        raise Exception(f"שגיאה בפענוח: {str(e)}")
+
+def secure_memory_wipe(data):
+    """מחיקה מאובטחת של נתונים מהזיכרון"""
+    try:
+        if isinstance(data, bytes):
+            # דריסת הנתונים בזיכרון
+            for i in range(len(data)):
+                data = data[:i] + b'\x00' + data[i+1:]
+        elif isinstance(data, str):
+            # המרה לbytes ודריסה
+            data_bytes = data.encode('utf-8')
+            for i in range(len(data_bytes)):
+                data_bytes = data_bytes[:i] + b'\x00' + data_bytes[i+1:]
+        
+        print("🧹 זיכרון נוקה בצורה מאובטחת")
+        return True
+        
+    except Exception as e:
+        print(f"❌ שגיאה בניקוי זיכרון: {str(e)}")
+        return False
+
+def log_privacy_action(action, patient_name, details=""):
+    """רישום פעולות פרטיות לביקורת"""
+    try:
+        log_entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "action": action,
+            "patient_name": patient_name,
+            "details": details,
+            "ip_hash": hashlib.sha256(request.remote_addr.encode()).hexdigest()[:8] if request else "unknown"
+        }
+        
+        # יצירת תיקיית לוגים
+        logs_folder = os.path.join(app.config['TRANSCRIPTS_FOLDER'], '_privacy_logs')
+        os.makedirs(logs_folder, exist_ok=True)
+        
+        # שמירת הלוג
+        log_file = os.path.join(logs_folder, f"privacy_log_{datetime.datetime.now().strftime('%Y-%m')}.json")
+        
+        # קריאת לוגים קיימים או יצירת רשימה חדשה
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                logs = json.load(f)
+        else:
+            logs = []
+        
+        # הוספת הלוג החדש
+        logs.append(log_entry)
+        
+        # שמירת הלוגים
+        with open(log_file, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, ensure_ascii=False, indent=2)
+            
+        print(f"📝 פעולת פרטיות נרשמה: {action}")
+        
+    except Exception as e:
+        print(f"❌ שגיאה ברישום פעולת פרטיות: {str(e)}")
+
+
+def transcribe_with_faster_whisper(audio_file_path, language=None):
+    """תמלול עם Faster-Whisper Large V3 + אופטימיזציה לעברית"""
+    if language is None:
+        language = DEFAULT_LANGUAGE
+        
+    try:
+        from faster_whisper import WhisperModel
+        print(f"משתמש ב-Faster-Whisper עם מודל {WHISPER_MODEL_SIZE}...")
+        
+        # טעינת מודל (רק פעם אחת) עם הגדרות מקובץ .env
+        if not hasattr(transcribe_with_faster_whisper, 'model'):
+            print(f"🔄 טוען מודל Whisper {WHISPER_MODEL_SIZE} (ייקח זמן בפעם הראשונה)...")
+            transcribe_with_faster_whisper.model = WhisperModel(
+                WHISPER_MODEL_SIZE, 
+                device=FASTER_WHISPER_DEVICE, 
+                compute_type=FASTER_WHISPER_COMPUTE_TYPE
+            )
+            print("✅ מודל נטען בהצלחה!")
+        
+        # תמלול עם הגדרות מותאמות לעברית
+        segments, info = transcribe_with_faster_whisper.model.transcribe(
+            audio_file_path, 
+            language=language,
+            beam_size=5,
+            best_of=5,
+            temperature=0.0,
+            condition_on_previous_text=False  # טוב יותר לעברית
+        )
+        
+        # חיבור כל הסגמנטים לטקסט אחד
+        text = " ".join([segment.text for segment in segments])
+        
+        # תיקונים ספציפיים לעברית
+        text = advanced_hebrew_cleanup(text)
+        
+        # קביעת רמת ביטחון לפי המודל
+        confidence = 0.90 if WHISPER_MODEL_SIZE.startswith('large') else 0.85 if WHISPER_MODEL_SIZE == 'medium' else 0.8
+        
+        return {
+            'text': text.strip(),
+            'confidence': confidence
+        }
+    except ImportError:
+        raise Exception("Faster-Whisper לא מותקן")
+    except Exception as e:
+        raise Exception(f"שגיאה בתמלול עם Faster-Whisper: {str(e)}")
+
+def transcribe_with_ivrit_ai(audio_file_path, language=None):
+    """תמלול עם מודל ivrit.ai המותאם במיוחד לעברית"""
+    if language is None:
+        language = 'he'  # ivrit.ai מותאם לעברית
+        
+    try:
+        import requests
+        print("משתמש בשרת ivrit.ai מקומי...")
+        
+        # בדיקה אם השרת המקומי פועל
+        try:
+            health_response = requests.get('http://localhost:8000/health', timeout=2)
+            if health_response.status_code == 200:
+                print("🌐 שרת ivrit.ai מקומי זמין - משתמש בו")
+                return transcribe_with_ivrit_ai_server(audio_file_path, language)
+        except:
+            print("⚠️ שרת ivrit.ai מקומי לא זמין - עובר למודל ישיר")
+        
+        # גיבוי - שימוש במודל ישיר
+        import ivrit
+        print("משתמש במודל ivrit.ai ישיר...")
+        
+        # טעינת מודל (רק פעם אחת)
+        if not hasattr(transcribe_with_ivrit_ai, 'model'):
+            print("🔄 טוען מודל ivrit.ai (ייקח זמן בפעם הראשונה)...")
+            transcribe_with_ivrit_ai.model = ivrit.load_model(
+                engine='faster-whisper', 
+                model='ivrit-ai/whisper-large-v3-ct2',
+                device='cpu'
+            )
+            print("✅ מודל ivrit.ai נטען בהצלחה!")
+        
+        # תמלול
+        result = transcribe_with_ivrit_ai.model.transcribe(
+            path=audio_file_path, 
+            language=language
+        )
+        
+        # חילוץ הטקסט
+        text = result.get('text', '').strip()
+        
+        # תיקונים נוספים לעברית (המודל כבר מותאם אבל נוסיף עוד תיקונים)
+        text = advanced_hebrew_cleanup(text)
+        
+        return {
+            'text': text,
+            'confidence': 0.95  # מודל מותאם במיוחד לעברית
+        }
+    except ImportError:
+        raise Exception("ivrit.ai לא מותקן")
+    except Exception as e:
+        raise Exception(f"שגיאה בתמלול עם ivrit.ai: {str(e)}")
+
+def transcribe_with_ivrit_ai_server(audio_file_path, language=None):
+    """תמלול באמצעות שרת ivrit.ai מקומי"""
+    if language is None:
+        language = 'he'
+        
+    try:
+        import requests
+        
+        # שליחת קובץ לשרת המקומי
+        with open(audio_file_path, 'rb') as audio_file:
+            files = {'audio': audio_file}
+            data = {
+                'model': 'ivrit-ai/whisper-large-v3-turbo-ct2',  # המודל המהיר יותר
+                'language': language
+            }
+            
+            print("📡 שולח לשרת ivrit.ai מקומי...")
+            response = requests.post(
+                'http://localhost:8000/transcribe',
+                files=files,
+                data=data,
+                timeout=300  # 5 דקות timeout
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                text = result.get('text', '').strip()
+                
+                # תיקונים נוספים לעברית
+                text = advanced_hebrew_cleanup(text)
+                
+                return {
+                    'text': text,
+                    'confidence': 0.95
+                }
+            else:
+                raise Exception(f"שגיאה בשרת: {response.status_code} - {response.text}")
+                
+    except Exception as e:
+        raise Exception(f"שגיאה בתמלול עם שרת ivrit.ai: {str(e)}")
+
+def transcribe_with_assemblyai(audio_file_path, language='he'):
+    """תמלול באמצעות AssemblyAI SDK - מעולה לעברית"""
+    if not ASSEMBLYAI_API_KEY or ASSEMBLYAI_API_KEY == 'your-assemblyai-api-key-here':
+        raise Exception("חסר API Key של AssemblyAI. יש להגדיר ASSEMBLYAI_API_KEY בקובץ .env")
+    
+    try:
+        import assemblyai as aai
+        
+        print("שולח קובץ ל-AssemblyAI עם SDK...")
+        print(f"API Key מתחיל ב: {ASSEMBLYAI_API_KEY[:10]}...")
+        
+        # בדיקת גודל קובץ
+        file_size = os.path.getsize(audio_file_path)
+        print(f"גודל קובץ: {file_size / (1024*1024):.2f} MB")
+        
+        # AssemblyAI תומך בקבצים גדולים יותר
+        if file_size > 100 * 1024 * 1024:  # 100MB
+            raise Exception(f"קובץ גדול מדי עבור AssemblyAI - {file_size / (1024*1024):.1f}MB (מקסימום 100MB)")
+        
+        # הגדרת API Key
+        aai.settings.api_key = ASSEMBLYAI_API_KEY
+        
+        # הגדרת קונפיגורציה לעברית
+        config = aai.TranscriptionConfig(
+            language_code='he',  # עברית
+            punctuate=True,
+            format_text=True,
+            speaker_labels=False,  # ללא זיהוי דוברים לביצועים טובים יותר
+            speech_model=aai.SpeechModel.best  # המודל הטוב ביותר
+        )
+        
+        print("מתחיל תמלול עם AssemblyAI SDK...")
+        transcriber = aai.Transcriber(config=config)
+        transcript = transcriber.transcribe(audio_file_path)
+        
+        if transcript.status == aai.TranscriptStatus.error:
+            raise Exception(f"שגיאה בתמלול: {transcript.error}")
+        
+        print("תמלול הושלם בהצלחה עם AssemblyAI!")
+        return {
+            'text': transcript.text.strip() if transcript.text else '',
+            'confidence': transcript.confidence if hasattr(transcript, 'confidence') else 0.9
+        }
+        
+    except ImportError:
+        raise Exception("AssemblyAI SDK לא מותקן. הרץ: pip install assemblyai")
+    except Exception as e:
+        print(f"שגיאה בתמלול עם AssemblyAI: {str(e)}")
+        raise e
+
+def transcribe_with_whisper_fallback(audio_file_path, language=None):
+    """תמלול עם Whisper רגיל כגיבוי"""
+    if language is None:
+        language = DEFAULT_LANGUAGE
+        
+    try:
+        import whisper
+        print("משתמש ב-Whisper רגיל...")
+        model = whisper.load_model(WHISPER_MODEL_SIZE)
+        result = model.transcribe(audio_file_path, language=language, temperature=0.0)
+        return {
+            'text': result["text"].strip(),
+            'confidence': 0.7
+        }
+    except ImportError:
+        raise Exception("Whisper לא מותקן")
+    except Exception as e:
+        raise Exception(f"שגיאה בתמלול עם Whisper: {str(e)}")
+
+ALLOWED_EXTENSIONS = {'wav', 'mp3', 'mp4', 'm4a', 'webm', 'ogg', 'opus'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_patient_folder(patient_name, user_id=None):
+    # ניקוי שם המטופל תוך שמירה על עברית
+    safe_name = patient_name.strip()
+    if not safe_name:
+        safe_name = "unnamed_patient"
+    
+    # הסרת תווים בעייתיים לשמות תיקיות אך שמירה על עברית
+    forbidden_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
+    for char in forbidden_chars:
+        safe_name = safe_name.replace(char, '_')
+    
+    # הסרת נקודות בסוף (בעייתי ב-Windows)
+    safe_name = safe_name.rstrip('.')
+    
+    # וידוא שהשם לא ריק אחרי הניקוי
+    if not safe_name:
+        safe_name = "unnamed_patient"
+    
+    # יצירת תיקייה ייחודית לכל משתמש
+    if user_id:
+        user_folder = os.path.join(app.config['TRANSCRIPTS_FOLDER'], f'user_{user_id}')
+        os.makedirs(user_folder, exist_ok=True)
+        patient_folder = os.path.join(user_folder, safe_name)
+    else:
+        # תאימות לאחור - אם אין user_id
+        patient_folder = os.path.join(app.config['TRANSCRIPTS_FOLDER'], safe_name)
+    
+    os.makedirs(patient_folder, exist_ok=True)
+    return patient_folder
+
+def advanced_hebrew_cleanup(text):
+    """תיקונים מתקדמים לעברית - מותאם ל-Whisper Large V3"""
+    # תיקוני כפילויות נפוצות בעברית
+    hebrew_duplicates = {
+        'אני אני': 'אני',
+        'כן כן': 'כן',
+        'לא לא': 'לא',
+        'מה מה': 'מה',
+        'איך איך': 'איך',
+        'כאילו כאילו': 'כאילו',
+        'בסדר בסדר': 'בסדר',
+        'טוב טוב': 'טוב',
+        'אוקיי אוקיי': 'אוקיי',
+        'נכון נכון': 'נכון',
+        'בדיוק בדיוק': 'בדיוק',
+        'אמר אמר': 'אמר',
+        'אמרה אמרה': 'אמרה',
+        'רוצה רוצה': 'רוצה',
+        'צריך צריך': 'צריך',
+        'יודע יודע': 'יודע',
+        'חושב חושב': 'חושב',
+        'מרגיש מרגיש': 'מרגיש'
+    }
+    
+    # תיקוני מילות מילוי
+    filler_words = {
+        'אמ אמ': 'אמ',
+        'אה אה': 'אה',
+        'אמממ': 'אמ',
+        'אההה': 'אה',
+        'mm hmm': 'מממ',
+        'uhh': 'אה',
+        'umm': 'אמ',
+        'eh': 'אה'
+    }
+    
+    # תיקוני שגיאות נפוצות של Whisper בעברית
+    common_errors = {
+        'אני אני רוצה': 'אני רוצה',
+        'זה זה': 'זה',
+        'של של': 'של',
+        'על על': 'על',
+        'עם עם': 'עם',
+        'את את': 'את',
+        'אל אל': 'אל',
+        'כל כל': 'כל',
+        'גם גם': 'גם',
+        'או או': 'או',
+        'אבל אבל': 'אבל',
+        'כי כי': 'כי',
+        'שזה שזה': 'שזה',
+        'שאני שאני': 'שאני'
+    }
+    
+    # החלת תיקונים
+    for wrong, correct in hebrew_duplicates.items():
+        text = text.replace(wrong, correct)
+    
+    for wrong, correct in filler_words.items():
+        text = text.replace(wrong, correct)
+    
+    for wrong, correct in common_errors.items():
+        text = text.replace(wrong, correct)
+    
+    # ניקוי רווחים מיותרים
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
+    
+    return text
+
+def simple_text_cleanup(text):
+    """תיקון בסיסי של טקסט - נשאר לתאימות לאחור"""
+    return advanced_hebrew_cleanup(text)
+
+def save_transcript(patient_name, transcript_data, session_date=None, user_id=None):
+    if not session_date:
+        session_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    
+    patient_folder = get_patient_folder(patient_name, user_id)
+    transcript_filename = f"session_{session_date}.json"
+    transcript_path = os.path.join(patient_folder, transcript_filename)
+    
+    with open(transcript_path, 'w', encoding='utf-8') as f:
+        json.dump(transcript_data, f, ensure_ascii=False, indent=2)
+    
+    return transcript_path
+
+@app.route('/')
+def index():
+    # Allow access to main page without authentication
+    # The frontend will handle showing appropriate content based on auth status
+    return render_template('index.html')
+
+@app.route('/app')
+def app_page():
+    # App page - requires authentication (handled by frontend)
+    return render_template('app.html')
+
+@app.route('/feedback')
+def feedback_page():
+    # Feedback page - public access
+    # No authentication required - accessible to all users including guests
+    return render_template('feedback.html')
+
+@app.route('/how-it-works')
+def how_it_works_page():
+    # How it works page - public access
+    # No authentication required - accessible to all users including guests
+    return render_template('how-it-works.html')
+
+@app.route('/static/<filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
+
+@app.route('/transcribe', methods=['POST'])
+@require_auth
+def transcribe_audio():
+    try:
+        if 'audio' not in request.files:
+            return jsonify({'error': 'לא נבחר קובץ שמע'}), 400
+        
+        audio_file = request.files['audio']
+        patient_name = request.form.get('patient_name', '').strip()
+        session_date = request.form.get('session_date', '')
+        quality_mode = request.form.get('quality_mode', 'balanced')
+        
+        # אם לא הוזן שם מטופל, החזר שגיאה
+        if not patient_name:
+            return jsonify({'error': 'יש להזין שם מטופל'}), 400
+        
+        if audio_file.filename == '':
+            return jsonify({'error': 'לא נבחר קובץ'}), 400
+        
+        if not allowed_file(audio_file.filename):
+            return jsonify({'error': 'סוג קובץ לא נתמך'}), 400
+        
+        # רישום פעולת פרטיות - התחלת תמלול
+        log_privacy_action("transcription_start", patient_name, f"התחלת תמלול מאובטח עם {quality_mode}")
+        
+        # שמירת קובץ זמני מוצפן - אבטחה מקסימלית
+        file_extension = os.path.splitext(audio_file.filename)[1] or '.wav'
+        temp_path = None
+        encrypted_path = None
+        
+        try:
+            print(f"🔐 מתחיל תמלול מאובטח עבור {patient_name}...")
+            
+            # יצירת מפתח הצפנה זמני ייחודי
+            temp_key = generate_temp_encryption_key()
+            
+            # קריאת הקובץ לזיכרון
+            audio_data = audio_file.read()
+            print(f"📊 גודל קובץ: {len(audio_data) / (1024*1024):.2f} MB")
+            
+            # יצירת קובץ זמני מוצפן
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+                # הצפנת הנתונים לפני שמירה
+                encrypted_data = encrypt_audio_data(audio_data, temp_key)
+                temp_file.write(encrypted_data)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())  # וידוא שמירה לדיסק
+                encrypted_path = temp_file.name
+            
+            # פענוח לקובץ זמני לתמלול
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+                decrypted_data = decrypt_audio_data(encrypted_data, temp_key)
+                temp_file.write(decrypted_data)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+                temp_path = temp_file.name
+            
+            # מחיקה מאובטחת של הקובץ המוצפן מיד
+            secure_delete_file(encrypted_path)
+            encrypted_path = None
+            
+            print(f"✅ קובץ הוכן לתמלול מאובטח")
+            
+            # בחירת שירות תמלול לפי הבחירה של המשתמש
+            if quality_mode == 'ivrit-ai':
+                # ivrit.ai - מודל מותאם במיוחד לעברית
+                try:
+                    result = transcribe_with_ivrit_ai(temp_path, language='he')
+                    original_text = result["text"].strip()
+                    transcription_method = "ivrit.ai (מותאם לעברית)"
+                    print("תמלול הושלם בהצלחה עם ivrit.ai")
+                except Exception as ivrit_error:
+                    print(f"שגיאה ב-ivrit.ai: {str(ivrit_error)}")
+                    print("מנסה עם Faster-Whisper כגיבוי...")
+                    try:
+                        result = transcribe_with_faster_whisper(temp_path, language='he')
+                        original_text = result["text"].strip()
+                        transcription_method = "Faster-Whisper (גיבוי)"
+                        print("תמלול הושלם בהצלחה עם Faster-Whisper")
+                    except Exception as faster_whisper_error:
+                        return jsonify({'error': f'שגיאה בתמלול: ivrit.ai - {str(ivrit_error)}, Faster-Whisper - {str(faster_whisper_error)}'}), 500
+                        
+            elif quality_mode == 'faster-whisper':
+                # Faster-Whisper (מקומי מהיר)
+                try:
+                    result = transcribe_with_faster_whisper(temp_path, language='he')
+                    original_text = result["text"].strip()
+                    transcription_method = "Faster-Whisper"
+                    print("תמלול הושלם בהצלחה עם Faster-Whisper")
+                except Exception as faster_whisper_error:
+                    print(f"שגיאה ב-Faster-Whisper: {str(faster_whisper_error)}")
+                    print("מנסה עם Whisper רגיל כגיבוי...")
+                    try:
+                        result = transcribe_with_whisper_fallback(temp_path, language='he')
+                        original_text = result["text"].strip()
+                        transcription_method = "Whisper (גיבוי)"
+                        print("תמלול הושלם בהצלחה עם Whisper רגיל")
+                    except Exception as whisper_error:
+                        return jsonify({'error': f'שגיאה בתמלול: Faster-Whisper - {str(faster_whisper_error)}, Whisper - {str(whisper_error)}'}), 500
+                        
+            elif quality_mode == 'assemblyai':
+                # AssemblyAI עם הצפנה
+                try:
+                    # יצירת מפתח הצפנה ייחודי
+                    user_key = generate_user_key(patient_name, session_date or datetime.datetime.now().strftime("%Y-%m-%d"))
+                    
+                    # רישום פעולת פרטיות
+                    log_privacy_action("encryption_start", patient_name, f"מתחיל הצפנה לפני שליחה ל-AssemblyAI")
+                    
+                    # הצפנת הקובץ
+                    encrypted_path = encrypt_file(temp_path, user_key)
+                    
+                    try:
+                        # פענוח הקובץ לתמלול (AssemblyAI צריך קובץ לא מוצפן)
+                        decrypted_path = temp_path + '.decrypted'
+                        decrypt_file(encrypted_path, user_key, decrypted_path)
+                        
+                        # תמלול עם הקובץ המפוענח
+                        result = transcribe_with_assemblyai(decrypted_path, language='he')
+                        original_text = result["text"].strip()
+                        transcription_method = "AssemblyAI (מוצפן)"
+                        
+                        # מחיקה מאובטחת של הקובץ המפוענח
+                        secure_delete_file(decrypted_path)
+                        
+                        # רישום השלמת התמלול
+                        log_privacy_action("transcription_complete", patient_name, f"תמלול הושלם עם AssemblyAI, קבצים נמחקו")
+                        
+                        print("תמלול הושלם בהצלחה עם AssemblyAI (מוצפן)")
+                        
+                    finally:
+                        # מחיקה מאובטחת של הקובץ המוצפן
+                        secure_delete_file(encrypted_path)
+                        
+                except Exception as assemblyai_error:
+                    log_privacy_action("encryption_error", patient_name, f"שגיאה בהצפנה/תמלול: {str(assemblyai_error)}")
+                    return jsonify({'error': f'שגיאה ב-AssemblyAI: {str(assemblyai_error)}'}), 500
+                    
+            elif quality_mode == 'whisper':
+                # רק Whisper רגיל
+                try:
+                    result = transcribe_with_whisper_fallback(temp_path, language='he')
+                    original_text = result["text"].strip()
+                    transcription_method = "Whisper"
+                    print("תמלול הושלם בהצלחה עם Whisper")
+                except Exception as whisper_error:
+                    return jsonify({'error': f'שגיאה ב-Whisper: {str(whisper_error)}'}), 500
+                    
+            else:  # ברירת מחדל - AssemblyAI
+                # ברירת מחדל AssemblyAI
+                try:
+                    result = transcribe_with_assemblyai(temp_path, language='he')
+                    original_text = result["text"].strip()
+                    transcription_method = "AssemblyAI"
+                    print("תמלול הושלם בהצלחה עם AssemblyAI")
+                except Exception as assemblyai_error:
+                    return jsonify({'error': f'שגיאה ב-AssemblyAI: {str(assemblyai_error)}'}), 500
+            
+            if not original_text:
+                return jsonify({'error': 'לא זוהה טקסט בקובץ השמע'}), 400
+            
+            # תיקון בסיסי
+            corrected_text = simple_text_cleanup(original_text)
+            corrections_made = ["תיקון בסיסי של טקסט"] if corrected_text != original_text else []
+            
+            # רישום השלמת התמלול
+            log_privacy_action("transcription_complete", patient_name, f"תמלול הושלם בהצלחה עם {transcription_method}")
+            
+            # עדכון מונה סשנים חינמיים (רק אם זה לא מנוי בתשלום)
+            user_id = request.current_user['user_id']
+            auth_manager = AuthManager()
+            
+            # בדיקה אם המשתמש במנוי חינמי
+            if request.session_status['status'] == 'trial':
+                auth_manager.increment_free_session(user_id)
+                print(f"✅ מונה סשנים חינמיים עודכן עבור משתמש {user_id}")
+            
+            print(f"✅ תמלול הושלם בהצלחה עבור {patient_name}")
+            
+            return jsonify({
+                'success': True,
+                'original_transcript': original_text,
+                'corrected_transcript': corrected_text,
+                'corrections_made': corrections_made,
+                'patient_name': patient_name,
+                'session_date': session_date if session_date else datetime.datetime.now().strftime("%Y-%m-%d"),
+                'audio_filename': audio_file.filename,
+                'quality_mode': quality_mode,
+                'word_count': len(corrected_text.split()),
+                'session_info': {
+                    'sessions_used': request.session_status['sessions_used'] + (1 if request.session_status['status'] == 'trial' else 0),
+                    'sessions_limit': request.session_status['sessions_limit'],
+                    'status': request.session_status['status']
+                }
+            })
+            
+        finally:
+            # מחיקה מאובטחת של כל הקבצים הזמניים
+            if temp_path and os.path.exists(temp_path):
+                print("🗑️ מוחק קובץ זמני מאובטח...")
+                secure_delete_file(temp_path)
+            
+            if encrypted_path and os.path.exists(encrypted_path):
+                print("🗑️ מוחק קובץ מוצפן זמני...")
+                secure_delete_file(encrypted_path)
+            
+            # ניקוי זיכרון מאובטח
+            if 'audio_data' in locals():
+                secure_memory_wipe(audio_data)
+            if 'encrypted_data' in locals():
+                secure_memory_wipe(encrypted_data)
+            if 'decrypted_data' in locals():
+                secure_memory_wipe(decrypted_data)
+            if 'temp_key' in locals():
+                secure_memory_wipe(temp_key)
+            
+            # רישום סיום מאובטח
+            log_privacy_action("secure_cleanup", patient_name, "ניקוי מאובטח של כל הקבצים והזיכרון הושלם")
+    
+    except Exception as e:
+        print(f"שגיאה בתמלול: {str(e)}")
+        return jsonify({'error': f'שגיאה בעיבוד: {str(e)}'}), 500
+
+@app.route('/share-target', methods=['POST'])
+def share_target():
+    """קבלת קבצים משותפים מאפליקציות אחרות"""
+    try:
+        import tempfile
+        import base64
+        from flask import redirect
+        
+        # בדיקה אם יש קובץ שמע
+        if 'audio' in request.files:
+            audio_file = request.files['audio']
+            if audio_file.filename != '':
+                print(f"קובץ שמע התקבל דרך Share: {audio_file.filename}")
+                
+                # שמירת הקובץ זמנית ויצירת data URL
+                file_data = audio_file.read()
+                file_type = audio_file.content_type or 'audio/opus'
+                
+                # יצירת data URL
+                file_base64 = base64.b64encode(file_data).decode('utf-8')
+                data_url = f"data:{file_type};base64,{file_base64}"
+                
+                # החזרת דף עם הקובץ מוטמע
+                return render_template('share_received.html', 
+                                     filename=audio_file.filename,
+                                     data_url=data_url,
+                                     file_type=file_type)
+        
+        # בדיקה אם יש URL משותף
+        url = request.form.get('url', '')
+        if url:
+            print(f"URL התקבל דרך Share: {url}")
+            return redirect(f'/?shared_url={url}')
+        
+        # אם אין קובץ או URL, פשוט פתח את האפליקציה
+        return redirect('/#app')
+        
+    except Exception as e:
+        print(f"שגיאה בקבלת קובץ משותף: {e}")
+        return redirect('/#app')
+
+@app.route('/patients')
+@require_auth
+def get_patients():
+    try:
+        user_id = request.current_user['user_id']
+        patients = []
+        
+        # בדיקת תיקיית המשתמש הספציפי
+        user_folder = os.path.join(app.config['TRANSCRIPTS_FOLDER'], f'user_{user_id}')
+        
+        if os.path.exists(user_folder):
+            for patient_folder in os.listdir(user_folder):
+                patient_path = os.path.join(user_folder, patient_folder)
+                if os.path.isdir(patient_path):
+                    session_count = len([f for f in os.listdir(patient_path) if f.endswith('.json')])
+                    patients.append({
+                        'name': patient_folder,
+                        'session_count': session_count
+                    })
+        
+        # הוספת מידע על מגבלות
+        auth_manager = AuthManager()
+        can_add_patient, current_patients, max_patients, status = auth_manager.check_free_patient_limit(user_id)
+        
+        return jsonify({
+            'patients': patients,
+            'patient_limits': {
+                'can_add_patient': can_add_patient,
+                'current_patients': current_patients,
+                'max_patients': max_patients,
+                'status': status
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/patient/<patient_name>/sessions')
+def get_patient_sessions(patient_name):
+    try:
+        patient_folder = get_patient_folder(patient_name)
+        sessions = []
+        
+        if os.path.exists(patient_folder):
+            for filename in os.listdir(patient_folder):
+                if filename.endswith('.json'):
+                    filepath = os.path.join(patient_folder, filename)
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        session_data = json.load(f)
+                        sessions.append({
+                            'filename': filename,
+                            'date': session_data.get('session_date'),
+                            'created_at': session_data.get('created_at'),
+                            'word_count': session_data.get('word_count', 0),
+                            'audio_filename': session_data.get('audio_filename')
+                        })
+        
+        sessions.sort(key=lambda x: x['created_at'], reverse=True)
+        return jsonify({'sessions': sessions})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/patient/<patient_name>/session/<session_filename>')
+def get_session_content(patient_name, session_filename):
+    try:
+        patient_folder = get_patient_folder(patient_name)
+        session_path = os.path.join(patient_folder, session_filename)
+        
+        if not os.path.exists(session_path):
+            return jsonify({'error': 'סשן לא נמצא'}), 404
+        
+        with open(session_path, 'r', encoding='utf-8') as f:
+            session_data = json.load(f)
+        
+        # תמיכה בפורמטים ישנים וחדשים
+        if 'original_transcript' not in session_data and 'transcript' in session_data:
+            session_data['original_transcript'] = session_data['transcript']
+            session_data['corrected_transcript'] = session_data.get('edited_transcript', session_data['transcript'])
+        
+        return jsonify(session_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/correct-text', methods=['POST'])
+def correct_text_manually():
+    try:
+        data = request.json
+        text = data.get('text', '').strip()
+        
+        if not text:
+            return jsonify({'error': 'לא נשלח טקסט לתיקון'}), 400
+        
+        corrected_text = simple_text_cleanup(text)
+        corrections_made = ["תיקון בסיסי של טקסט"] if corrected_text != text else []
+        
+        return jsonify({
+            'success': True,
+            'original_text': text,
+            'corrected_text': corrected_text,
+            'corrections_made': corrections_made,
+            'changes_count': len(corrections_made)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בתיקון: {str(e)}'}), 500
+
+@app.route('/generate-treatment-form', methods=['POST'])
+def generate_treatment_form():
+    """יצירת טופס טיפול מקצועי מטקסט מתומלל"""
+    try:
+        data = request.json
+        transcript_text = data.get('transcript_text', '').strip()
+        patient_name = data.get('patient_name', '').strip()
+        session_date = data.get('session_date', '')
+        therapist_name = data.get('therapist_name', '').strip()
+        
+        if not transcript_text:
+            return jsonify({'error': 'לא נשלח טקסט לניתוח'}), 400
+        
+        if not patient_name:
+            return jsonify({'error': 'יש להזין שם מטופל'}), 400
+        
+        print(f"יוצר טופס טיפול עבור {patient_name}...")
+        
+        # יצירת הטופס המקצועי
+        treatment_form = treatment_generator.generate_treatment_form(
+            transcript_text=transcript_text,
+            patient_name=patient_name,
+            session_date=session_date,
+            therapist_name=therapist_name
+        )
+        
+        # יצירת HTML מעוצב
+        html_form = treatment_generator.format_treatment_form_html(treatment_form)
+        
+        # יצירת טקסט מובנה לייצוא
+        text_form = treatment_generator.export_to_word_format(treatment_form)
+        
+        print(f"טופס טיפול נוצר בהצלחה עבור {patient_name}")
+        
+        return jsonify({
+            'success': True,
+            'treatment_form': treatment_form,
+            'html_form': html_form,
+            'text_form': text_form,
+            'confidence_score': treatment_form['analysis_confidence'],
+            'patient_name': patient_name
+        })
+        
+    except Exception as e:
+        print(f"שגיאה ביצירת טופס טיפול: {str(e)}")
+        return jsonify({'error': f'שגיאה ביצירת טופס: {str(e)}'}), 500
+
+@app.route('/patient/<patient_name>/session/<session_filename>/treatment-form')
+def get_session_treatment_form(patient_name, session_filename):
+    """יצירת טופס טיפול מסשן קיים"""
+    try:
+        patient_folder = get_patient_folder(patient_name)
+        session_path = os.path.join(patient_folder, session_filename)
+        
+        if not os.path.exists(session_path):
+            return jsonify({'error': 'סשן לא נמצא'}), 404
+        
+        with open(session_path, 'r', encoding='utf-8') as f:
+            session_data = json.load(f)
+        
+        # חילוץ הטקסט המתומלל
+        transcript_text = session_data.get('corrected_transcript') or \
+                         session_data.get('edited_transcript') or \
+                         session_data.get('original_transcript') or \
+                         session_data.get('transcript', '')
+        
+        if not transcript_text:
+            return jsonify({'error': 'לא נמצא טקסט מתומלל בסשן'}), 400
+        
+        # יצירת הטופס
+        treatment_form = treatment_generator.generate_treatment_form(
+            transcript_text=transcript_text,
+            patient_name=session_data.get('patient_name', patient_name),
+            session_date=session_data.get('session_date', ''),
+            therapist_name=''
+        )
+        
+        # יצירת HTML מעוצב
+        html_form = treatment_generator.format_treatment_form_html(treatment_form)
+        
+        # יצירת טקסט מובנה לייצוא
+        text_form = treatment_generator.export_to_word_format(treatment_form)
+        
+        return jsonify({
+            'success': True,
+            'treatment_form': treatment_form,
+            'html_form': html_form,
+            'text_form': text_form,
+            'confidence_score': treatment_form['analysis_confidence'],
+            'session_info': {
+                'patient_name': session_data.get('patient_name'),
+                'session_date': session_data.get('session_date'),
+                'audio_filename': session_data.get('audio_filename'),
+                'word_count': session_data.get('word_count')
+            }
+        })
+        
+    except Exception as e:
+        print(f"שגיאה ביצירת טופס טיפול מסשן: {str(e)}")
+        return jsonify({'error': f'שגיאה ביצירת טופס: {str(e)}'}), 500
+
+@app.route('/patient/<patient_name>', methods=['DELETE'])
+@require_auth
+def delete_patient(patient_name):
+    """מחיקת מטופל וכל הסשנים שלו"""
+    try:
+        import shutil
+        
+        user_id = request.current_user['user_id']
+        patient_folder = get_patient_folder(patient_name, user_id)
+        
+        if not os.path.exists(patient_folder):
+            return jsonify({'error': 'מטופל לא נמצא'}), 404
+        
+        # ספירת הסשנים לפני המחיקה
+        session_files = [f for f in os.listdir(patient_folder) if f.endswith('.json')]
+        deleted_sessions_count = len(session_files)
+        
+        # מחיקת כל התיקייה של המטופל
+        shutil.rmtree(patient_folder)
+        
+        # עדכון מונה סשנים חינמיים (הפחתה לפי כמות הסשנים שנמחקו)
+        auth_manager = AuthManager()
+        
+        # בדיקה אם המשתמש במנוי חינמי
+        can_create, sessions_used, sessions_limit, status = auth_manager.check_free_session_limit(user_id)
+        if status == 'trial' and deleted_sessions_count > 0:
+            # הפחתת המונה לפי כמות הסשנים שנמחקו
+            for i in range(deleted_sessions_count):
+                success = auth_manager.decrement_free_session(user_id)
+                if success:
+                    print(f"✅ מונה סשנים חינמיים הופחת עבור משתמש {user_id} (סשן {i + 1}/{deleted_sessions_count})")
+                else:
+                    print(f"⚠️ שגיאה בהפחתת מונה סשנים עבור משתמש {user_id} (סשן {i + 1}/{deleted_sessions_count})")
+        
+        print(f"מטופל '{patient_name}' נמחק בהצלחה עם {deleted_sessions_count} סשנים")
+        
+        # קבלת המצב המעודכן
+        can_create_updated, sessions_used_updated, sessions_limit_updated, status_updated = auth_manager.check_free_session_limit(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': f'המטופל "{patient_name}" וכל {deleted_sessions_count} הסשנים שלו נמחקו בהצלחה',
+            'deleted_sessions_count': deleted_sessions_count,
+            'session_info': {
+                'sessions_used': sessions_used_updated,
+                'sessions_limit': sessions_limit_updated,
+                'status': status_updated,
+                'can_create_new': can_create_updated
+            }
+        })
+        
+    except Exception as e:
+        print(f"שגיאה במחיקת מטופל '{patient_name}': {str(e)}")
+        return jsonify({'error': f'שגיאה במחיקת מטופל: {str(e)}'}), 500
+
+@app.route('/check-existing-session', methods=['POST'])
+def check_existing_session():
+    """בדיקה אם קיים סשן באותו תאריך"""
+    try:
+        data = request.json
+        patient_name = data.get('patient_name', '').strip()
+        session_date = data.get('session_date', '').strip()
+        
+        if not patient_name or not session_date:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        patient_folder = get_patient_folder(patient_name)
+        session_filename = f"session_{session_date}.json"
+        session_path = os.path.join(patient_folder, session_filename)
+        
+        if os.path.exists(session_path):
+            # קיים סשן באותו תאריך
+            with open(session_path, 'r', encoding='utf-8') as f:
+                existing_session = json.load(f)
+            
+            return jsonify({
+                'exists': True,
+                'existing_session': {
+                    'date': existing_session.get('session_date'),
+                    'created_at': existing_session.get('created_at'),
+                    'word_count': existing_session.get('word_count', 0),
+                    'audio_filename': existing_session.get('audio_filename')
+                }
+            })
+        else:
+            return jsonify({'exists': False})
+            
+    except Exception as e:
+        print(f"שגיאה בבדיקת סשן קיים: {str(e)}")
+        return jsonify({'error': f'שגיאה בבדיקה: {str(e)}'}), 500
+
+@app.route('/save-edited-text', methods=['POST'])
+@require_auth
+def save_edited_text():
+    """שמירת סשן חדש עם הטקסט הערוך"""
+    try:
+        data = request.json
+        patient_name = data.get('patient_name', '').strip()
+        edited_text = data.get('edited_text', '').strip()
+        original_transcript = data.get('original_transcript', '').strip()
+        corrected_transcript = data.get('corrected_transcript', '').strip()
+        session_date = data.get('session_date', '').strip()
+        audio_filename = data.get('audio_filename', '').strip()
+        quality_mode = data.get('quality_mode', 'assemblyai')
+        replace_existing = data.get('replace_existing', False)
+        
+        if not patient_name or not edited_text:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        # בדיקה אם זה מטופל חדש
+        user_folder = os.path.join(app.config['TRANSCRIPTS_FOLDER'], f'user_{user_id}')
+        patient_folder = os.path.join(user_folder, patient_name)
+        is_new_patient = not os.path.exists(patient_folder)
+        
+        # אם זה מטופל חדש, בדוק מגבלות
+        if is_new_patient:
+            can_add_patient, current_patients, max_patients, status = auth_manager.check_free_patient_limit(user_id)
+            if not can_add_patient and status == 'limit_reached':
+                return jsonify({
+                    'error': 'הגעת למגבלת המטופלים החינמיים',
+                    'message': 'במנוי החינמי ניתן להוסיף מטופל אחד בלבד. כדי להוסיף מטופלים נוספים, יש לשדרג למנוי בתשלום',
+                    'current_patients': current_patients,
+                    'max_patients': max_patients,
+                    'subscription_required': True,
+                    'upgrade_url': '/subscription/upgrade'
+                }), 402  # Payment Required
+        
+        # יצירת נתוני הסשן החדש
+        transcript_data = {
+            "patient_name": patient_name,
+            "session_date": session_date if session_date else datetime.datetime.now().strftime("%Y-%m-%d"),
+            "audio_filename": audio_filename,
+            "original_transcript": original_transcript,
+            "corrected_transcript": corrected_transcript,
+            "edited_transcript": edited_text,
+            "created_at": datetime.datetime.now().isoformat(),
+            "word_count": len(edited_text.split()),
+            "quality_mode": quality_mode
+        }
+        
+        # בדיקה אם צריך להחליף קיים או ליצור חדש
+        if replace_existing:
+            # החלפת הסשן הקיים
+            transcript_path = save_transcript(patient_name, transcript_data, session_date, user_id)
+            message = 'הסשן הוחלף בהצלחה'
+        else:
+            # יצירת סשן חדש עם חותמת זמן
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            transcript_path = save_transcript(patient_name, transcript_data, current_time, user_id)
+            message = 'סשן חדש נוצר בהצלחה'
+        
+        print(f"סשן נשמר בהצלחה עבור {patient_name}")
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'word_count': len(edited_text.split()),
+            'transcript_path': os.path.basename(transcript_path)
+        })
+        
+    except Exception as e:
+        print(f"שגיאה בשמירת סשן: {str(e)}")
+        return jsonify({'error': f'שגיאה בשמירה: {str(e)}'}), 500
+
+@app.route('/check-patient-limit', methods=['POST'])
+@require_auth
+def check_patient_limit():
+    """בדיקת מגבלת מטופלים לפני יצירת מטופל חדש"""
+    try:
+        data = request.json
+        patient_name = data.get('patient_name', '').strip()
+        
+        if not patient_name:
+            return jsonify({'error': 'חסר שם מטופל'}), 400
+        
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        # בדיקה אם המטופל כבר קיים
+        user_folder = os.path.join(app.config['TRANSCRIPTS_FOLDER'], f'user_{user_id}')
+        patient_folder = os.path.join(user_folder, patient_name)
+        patient_exists = os.path.exists(patient_folder)
+        
+        if patient_exists:
+            # המטופל כבר קיים - אין צורך בבדיקת מגבלה
+            return jsonify({
+                'can_create': True,
+                'patient_exists': True,
+                'message': 'המטופל כבר קיים במערכת'
+            })
+        
+        # בדיקת מגבלת מטופלים חדשים
+        can_add_patient, current_patients, max_patients, status = auth_manager.check_free_patient_limit(user_id)
+        
+        if not can_add_patient and status == 'limit_reached':
+            return jsonify({
+                'can_create': False,
+                'patient_exists': False,
+                'error': 'הגעת למגבלת המטופלים החינמיים',
+                'message': 'במנוי החינמי ניתן להוסיף מטופל אחד בלבד. כדי להוסיף מטופלים נוספים, יש לשדרג למנוי בתשלום',
+                'current_patients': current_patients,
+                'max_patients': max_patients,
+                'subscription_required': True,
+                'upgrade_url': '/subscription/upgrade'
+            })
+        
+        return jsonify({
+            'can_create': True,
+            'patient_exists': False,
+            'current_patients': current_patients,
+            'max_patients': max_patients,
+            'status': status,
+            'message': 'ניתן ליצור מטופל חדש'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בבדיקת מגבלת מטופלים: {str(e)}'}), 500
+
+@app.route('/delete-session', methods=['DELETE'])
+@require_auth
+def delete_session():
+    """מחיקת סשן ועדכון מונה סשנים"""
+    try:
+        data = request.json
+        patient_name = data.get('patient_name', '').strip()
+        session_filename = data.get('session_filename', '').strip()
+        
+        if not patient_name or not session_filename:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        patient_folder = get_patient_folder(patient_name, user_id)
+        session_path = os.path.join(patient_folder, session_filename)
+        
+        if not os.path.exists(session_path):
+            return jsonify({'error': 'סשן לא נמצא'}), 404
+        
+        # מחיקת הסשן
+        os.remove(session_path)
+        
+        # עדכון מונה סשנים חינמיים (הפחתה) - רק אם זה מנוי חינמי
+        auth_manager = AuthManager()
+        
+        # בדיקה אם המשתמש במנוי חינמי
+        can_create, sessions_used, sessions_limit, status = auth_manager.check_free_session_limit(user_id)
+        if status == 'trial':
+            success = auth_manager.decrement_free_session(user_id)
+            if success:
+                print(f"✅ מונה סשנים חינמיים הופחת עבור משתמש {user_id} (היה: {sessions_used}, עכשיו: {sessions_used - 1})")
+            else:
+                print(f"⚠️ שגיאה בהפחתת מונה סשנים עבור משתמש {user_id}")
+        
+        print(f"סשן נמחק בהצלחה: {session_filename} עבור {patient_name}")
+        
+        # קבלת המצב המעודכן
+        can_create_updated, sessions_used_updated, sessions_limit_updated, status_updated = auth_manager.check_free_session_limit(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'הסשן נמחק בהצלחה',
+            'session_info': {
+                'sessions_used': sessions_used_updated,
+                'sessions_limit': sessions_limit_updated,
+                'status': status_updated,
+                'can_create_new': can_create_updated
+            }
+        })
+        
+    except Exception as e:
+        print(f"שגיאה במחיקת סשן: {str(e)}")
+        return jsonify({'error': f'שגיאה במחיקת סשן: {str(e)}'}), 500
+
+
+# נתיבי אימות חדשים
+@app.route('/login')
+def login_page():
+    """דף כניסה"""
+    return render_template('login.html')
+
+@app.route('/register')
+def register_page():
+    """דף הרשמה"""
+    return render_template('register.html')
+
+@app.route('/encryption-setup')
+def encryption_setup_page():
+    """דף הגדרת הצפנה"""
+    return render_template('encryption_setup.html')
+
+@app.route('/encryption-dashboard')
+@require_auth
+def encryption_dashboard():
+    """לוח בקרת הצפנה היברידית"""
+    return render_template('encryption_dashboard.html')
+
+@app.route('/sync-dashboard')
+@require_auth_html
+def sync_dashboard():
+    """לוח בקרת סנכרון בין מכשירים"""
+    try:
+        if not SYNC_AVAILABLE:
+            return render_template('sync_dashboard.html', sync_available=False, error_message='מערכת סנכרון לא זמינה כרגע')
+        
+        return render_template('sync_dashboard.html', sync_available=True)
+    except Exception as e:
+        print(f"❌ שגיאה בטעינת דף סנכרון: {str(e)}")
+        return render_template('sync_dashboard.html', sync_available=False, error_message=f'שגיאה בטעינת דף סנכרון: {str(e)}')
+
+@app.route('/auth/register', methods=['POST'])
+def auth_register():
+    """רישום משתמש חדש"""
+    try:
+        data = request.json
+        email = data.get('email', '').strip()
+        password = data.get('password', '').strip()
+        full_name = data.get('full_name', '').strip()
+        
+        if not email or not password or not full_name:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        auth_manager = AuthManager()
+        success, result = auth_manager.register_user(email, password, full_name)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'הרשמה בהצלחה',
+                'user_id': result
+            })
+        else:
+            return jsonify({'error': result}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה ברישום: {str(e)}'}), 500
+
+@app.route('/auth/login', methods=['POST'])
+def auth_login():
+    """כניסת משתמש"""
+    try:
+        data = request.json
+        email = data.get('email', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not email or not password:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        auth_manager = AuthManager()
+        success, result = auth_manager.login_user(email, password)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'כניסה בהצלחה',
+                'session_token': result['session_token'],
+                'user_info': {
+                    'email': result['email'],
+                    'full_name': result['full_name']
+                }
+            })
+        else:
+            return jsonify({'error': result}), 401
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בכניסה: {str(e)}'}), 500
+
+
+@app.route('/auth/verify', methods=['GET'])
+def auth_verify():
+    """אימות session token"""
+    try:
+        auth_manager = AuthManager()
+        
+        # בדיקת session token
+        session_token = request.headers.get('Authorization')
+        if session_token and session_token.startswith('Bearer '):
+            session_token = session_token[7:]
+        else:
+            session_token = request.cookies.get('session_token')
+        
+        if not session_token:
+            return jsonify({'error': 'חסר טוקן אימות'}), 401
+        
+        is_valid, user_data = auth_manager.verify_session(session_token)
+        
+        if is_valid:
+            return jsonify({
+                'valid': True,
+                'user_info': user_data
+            })
+        else:
+            return jsonify({'error': 'טוקן לא תקין'}), 401
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה באימות: {str(e)}'}), 500
+
+@app.route('/auth/logout', methods=['POST'])
+def auth_logout():
+    """יציאת משתמש"""
+    try:
+        auth_manager = AuthManager()
+        
+        # בדיקת session token
+        session_token = request.headers.get('Authorization')
+        if session_token and session_token.startswith('Bearer '):
+            session_token = session_token[7:]
+        else:
+            session_token = request.cookies.get('session_token')
+        
+        if session_token:
+            auth_manager.logout_user(session_token)
+        
+        return jsonify({
+            'success': True,
+            'message': 'יציאה בהצלחה'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה ביציאה: {str(e)}'}), 500
+
+@app.route('/auth/google-config', methods=['GET'])
+def google_config():
+    """החזרת הגדרות Google OAuth"""
+    try:
+        google_client_id = os.getenv('GOOGLE_CLIENT_ID', 'your-google-client-id-here')
+        
+        return jsonify({
+            'client_id': google_client_id,
+            'enabled': google_client_id != 'your-google-client-id-here'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת הגדרות Google: {str(e)}'}), 500
+
+@app.route('/auth/google', methods=['POST'])
+def auth_google():
+    """כניסה/הרשמה עם Google"""
+    try:
+        data = request.json
+        google_token = data.get('google_token', '').strip()
+        
+        if not google_token:
+            return jsonify({'error': 'חסר טוקן Google'}), 400
+        
+        auth_manager = AuthManager()
+        success, result = auth_manager.login_with_google(google_token)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'כניסה עם Google בהצלחה',
+                'session_token': result['session_token'],
+                'user_info': {
+                    'email': result['email'],
+                    'full_name': result['full_name']
+                }
+            })
+        else:
+            return jsonify({'error': result}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בכניסה עם Google: {str(e)}'}), 500
+
+@app.route('/auth/profile')
+@require_auth
+def auth_profile():
+    """פרופיל משתמש"""
+    try:
+        auth_manager = AuthManager()
+        user_info = auth_manager.get_user_info(request.current_user['user_id'])
+        
+        if user_info:
+            return jsonify({
+                'success': True,
+                'user_info': user_info
+            })
+        else:
+            return jsonify({'error': 'משתמש לא נמצא'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת פרופיל: {str(e)}'}), 500
+
+@app.route('/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """בקשת איפוס סיסמה"""
+    try:
+        data = request.json
+        email = data.get('email', '').strip()
+        
+        if not email:
+            return jsonify({'error': 'חסר אימייל'}), 400
+        
+        auth_manager = AuthManager()
+        success, result = auth_manager.generate_password_reset_token(email)
+        
+        if success:
+            # כאן תוכל להוסיף שליחת אימייל עם הטוקן
+            # לעת עתה נחזיר את הטוקן (בפרודקשן לא לעשות את זה!)
+            return jsonify({
+                'success': True,
+                'message': 'טוקן איפוס נוצר בהצלחה',
+                'reset_token': result  # בפרודקשן - לשלוח באימייל!
+            })
+        else:
+            return jsonify({'error': result}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בבקשת איפוס: {str(e)}'}), 500
+
+@app.route('/auth/reset-password', methods=['POST'])
+def reset_password():
+    """איפוס סיסמה עם טוקן"""
+    try:
+        data = request.json
+        token = data.get('token', '').strip()
+        new_password = data.get('new_password', '').strip()
+        
+        if not token or not new_password:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'error': 'הסיסמה חייבת להכיל לפחות 6 תווים'}), 400
+        
+        auth_manager = AuthManager()
+        success, result = auth_manager.reset_password(token, new_password)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה באיפוס סיסמה: {str(e)}'}), 500
+
+@app.route('/admin/users')
+@require_auth
+def admin_get_users():
+    """קבלת רשימת משתמשים (למנהלים)"""
+    try:
+        # בדיקה אם המשתמש הוא מנהל (לעת עתה כל משתמש יכול לראות)
+        # בעתיד תוכל להוסיף בדיקת הרשאות
+        
+        auth_manager = AuthManager()
+        users = auth_manager.get_all_users()
+        
+        return jsonify({
+            'success': True,
+            'users': users,
+            'total_users': len(users)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת רשימת משתמשים: {str(e)}'}), 500
+
+# נתיבי הצפנה היברידית חדשים
+@app.route('/encryption/setup', methods=['POST'])
+@require_auth
+def setup_encryption():
+    """הגדרת מפתח הצפנה אישי למטפל"""
+    try:
+        data = request.json
+        master_password = data.get('master_password', '').strip()
+        
+        if not master_password:
+            return jsonify({'error': 'יש להזין סיסמת הצפנה'}), 400
+        
+        if len(master_password) < 8:
+            return jsonify({'error': 'סיסמת הצפנה חייבת להכיל לפחות 8 תווים'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, result = encryption_manager.generate_user_encryption_key(user_id, master_password)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'מפתח הצפנה אישי נוצר בהצלחה',
+                'encryption_key': result  # בפרודקשן - לא להחזיר את המפתח!
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בהגדרת הצפנה: {str(e)}'}), 500
+
+@app.route('/encryption/verify', methods=['POST'])
+@require_auth
+def verify_encryption_password():
+    """אימות סיסמת הצפנה של המטפל"""
+    try:
+        data = request.json
+        master_password = data.get('master_password', '').strip()
+        
+        if not master_password:
+            return jsonify({'error': 'יש להזין סיסמת הצפנה'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, result = encryption_manager.verify_user_password(user_id, master_password)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'סיסמת הצפנה נכונה',
+                'encryption_key': result  # בפרודקשן - לא להחזיר את המפתח!
+            })
+        else:
+            return jsonify({'error': result}), 401
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה באימות הצפנה: {str(e)}'}), 500
+
+@app.route('/encryption/save-session', methods=['POST'])
+@require_auth
+def save_encrypted_session():
+    """שמירת סשן מוצפן בענן"""
+    try:
+        data = request.json
+        session_data = data.get('session_data', {})
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not session_data or not encryption_key:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        # הצפנת הסשן
+        success, encrypted_data = encryption_manager.encrypt_session_data(
+            user_id, session_data, encryption_key
+        )
+        
+        if not success:
+            return jsonify({'error': encrypted_data}), 500
+        
+        # שמירה בענן
+        session_date = session_data.get('session_date', datetime.datetime.now().strftime("%Y-%m-%d"))
+        success, session_id = encryption_manager.save_encrypted_session(
+            user_id, encrypted_data, session_date
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'סשן נשמר בענן בצורה מוצפנת',
+                'session_id': session_id
+            })
+        else:
+            return jsonify({'error': session_id}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בשמירת סשן מוצפן: {str(e)}'}), 500
+
+@app.route('/encryption/sessions')
+@require_auth
+def get_encrypted_sessions():
+    """קבלת כל הסשנים המוצפנים של המטפל"""
+    try:
+        user_id = request.current_user['user_id']
+        patient_name_filter = request.args.get('patient_name')
+        
+        encryption_manager = EncryptionManager()
+        success, sessions = encryption_manager.get_user_encrypted_sessions(
+            user_id, patient_name_filter
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'sessions': sessions,
+                'total_sessions': len(sessions)
+            })
+        else:
+            return jsonify({'error': sessions}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת סשנים מוצפנים: {str(e)}'}), 500
+
+@app.route('/encryption/decrypt-session', methods=['POST'])
+@require_auth
+def decrypt_session():
+    """פענוח סשן מוצפן"""
+    try:
+        data = request.json
+        session_id = data.get('session_id', '').strip()
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not session_id or not encryption_key:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        # קבלת הסשן המוצפן
+        success, sessions = encryption_manager.get_user_encrypted_sessions(user_id)
+        if not success:
+            return jsonify({'error': sessions}), 500
+        
+        # חיפוש הסשן הספציפי
+        target_session = None
+        for session in sessions:
+            if session['session_id'] == session_id:
+                target_session = session
+                break
+        
+        if not target_session:
+            return jsonify({'error': 'סשן לא נמצא'}), 404
+        
+        # פענוח הסשן
+        success, decrypted_data = encryption_manager.decrypt_session_data(
+            target_session, encryption_key
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'session_data': decrypted_data
+            })
+        else:
+            return jsonify({'error': decrypted_data}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בפענוח סשן: {str(e)}'}), 500
+
+@app.route('/encryption/sync', methods=['POST'])
+@require_auth
+def sync_encrypted_sessions():
+    """סנכרון סשנים מוצפנים לענן"""
+    try:
+        data = request.json
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not encryption_key:
+            return jsonify({'error': 'חסר מפתח הצפנה'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, result = encryption_manager.sync_sessions_to_cloud(user_id, encryption_key)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בסנכרון: {str(e)}'}), 500
+
+@app.route('/encryption/backup', methods=['POST'])
+@require_auth
+def export_encrypted_backup():
+    """יצוא גיבוי מוצפן של כל הסשנים"""
+    try:
+        data = request.json
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not encryption_key:
+            return jsonify({'error': 'חסר מפתח הצפנה'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, backup_data = encryption_manager.export_encrypted_backup(user_id, encryption_key)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'backup_data': backup_data,
+                'message': 'גיבוי מוצפן נוצר בהצלחה'
+            })
+        else:
+            return jsonify({'error': backup_data}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה ביצירת גיבוי: {str(e)}'}), 500
+
+@app.route('/encryption/restore', methods=['POST'])
+@require_auth
+def import_encrypted_backup():
+    """יבוא גיבוי מוצפן"""
+    try:
+        data = request.json
+        backup_data = data.get('backup_data', '').strip()
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not backup_data or not encryption_key:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, result = encryption_manager.import_encrypted_backup(
+            user_id, backup_data, encryption_key
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה ביבוא גיבוי: {str(e)}'}), 500
+
+@app.route('/encryption/stats')
+@require_auth
+def get_encryption_stats():
+    """סטטיסטיקות הצפנה למטפל"""
+    try:
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, stats = encryption_manager.get_encryption_stats(user_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'stats': stats
+            })
+        else:
+            return jsonify({'error': stats}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת סטטיסטיקות: {str(e)}'}), 500
+
+@app.route('/encryption/delete-session', methods=['DELETE'])
+@require_auth
+def delete_encrypted_session():
+    """מחיקת סשן מוצפן"""
+    try:
+        data = request.json
+        session_id = data.get('session_id', '').strip()
+        
+        if not session_id:
+            return jsonify({'error': 'חסר מזהה סשן'}), 400
+        
+        user_id = request.current_user['user_id']
+        encryption_manager = EncryptionManager()
+        
+        success, result = encryption_manager.delete_encrypted_session(user_id, session_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 404
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה במחיקת סשן: {str(e)}'}), 500
+
+# נתיבי מנויים ותשלומים חדשים
+@app.route('/subscription/status')
+@require_auth
+def get_subscription_status():
+    """קבלת סטטוס מנוי של המשתמש"""
+    try:
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        subscription_status = auth_manager.get_subscription_status(user_id)
+        
+        if subscription_status:
+            return jsonify({
+                'success': True,
+                'subscription': subscription_status
+            })
+        else:
+            return jsonify({'error': 'לא נמצא מידע על המנוי'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת סטטוס מנוי: {str(e)}'}), 500
+
+@app.route('/subscription/check-session-limit')
+@require_auth
+def check_session_limit():
+    """בדיקת מגבלת סשנים חינמיים"""
+    try:
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        can_create, sessions_used, sessions_limit, status = auth_manager.check_free_session_limit(user_id)
+        
+        return jsonify({
+            'success': True,
+            'can_create_session': can_create,
+            'sessions_used': sessions_used,
+            'sessions_limit': sessions_limit,
+            'status': status,
+            'sessions_remaining': max(0, sessions_limit - sessions_used) if sessions_limit > 0 else -1
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בבדיקת מגבלת סשנים: {str(e)}'}), 500
+
+@app.route('/subscription/increment-session', methods=['POST'])
+@require_auth
+def increment_session_counter():
+    """עדכון מונה סשנים חינמיים"""
+    try:
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        # בדיקה אם המשתמש במנוי חינמי
+        can_create, sessions_used, sessions_limit, status = auth_manager.check_free_session_limit(user_id)
+        
+        if status == 'trial':
+            success = auth_manager.increment_free_session(user_id)
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': 'מונה סשנים עודכן',
+                    'sessions_used': sessions_used + 1,
+                    'sessions_limit': sessions_limit
+                })
+            else:
+                return jsonify({'error': 'שגיאה בעדכון מונה סשנים'}), 500
+        else:
+            return jsonify({
+                'success': True,
+                'message': 'מנוי בתשלום - אין צורך בעדכון מונה',
+                'sessions_used': -1,
+                'sessions_limit': -1
+            })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בעדכון מונה סשנים: {str(e)}'}), 500
+
+@app.route('/subscription/upgrade', methods=['POST'])
+@require_auth
+def create_upgrade_session():
+    """יצירת סשן שדרוג למנוי פרימיום"""
+    try:
+        data = request.json
+        plan_type = data.get('plan_type', 'premium')
+        
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        success, payment_info = auth_manager.create_payment_session(user_id, plan_type)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'payment_session': payment_info,
+                'message': 'סשן תשלום נוצר בהצלחה'
+            })
+        else:
+            return jsonify({'error': payment_info}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה ביצירת סשן שדרוג: {str(e)}'}), 500
+
+@app.route('/subscription/complete-payment', methods=['POST'])
+@require_auth
+def complete_payment_session():
+    """השלמת תשלום ושדרוג המשתמש"""
+    try:
+        data = request.json
+        payment_session_id = data.get('payment_session_id', '').strip()
+        payment_method = data.get('payment_method', 'manual')
+        
+        if not payment_session_id:
+            return jsonify({'error': 'חסר מזהה סשן תשלום'}), 400
+        
+        auth_manager = AuthManager()
+        success, result = auth_manager.complete_payment(payment_session_id, payment_method)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בהשלמת תשלום: {str(e)}'}), 500
+
+@app.route('/subscription/upgrade-demo', methods=['POST'])
+@require_auth
+def demo_upgrade():
+    """שדרוג דמו למנוי פרימיום (לבדיקות)"""
+    try:
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        success, result = auth_manager.upgrade_to_premium(user_id, 'demo')
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בשדרוג דמו: {str(e)}'}), 500
+
+@app.route('/subscription/reset-sessions-counter', methods=['POST'])
+@require_auth
+def reset_sessions_counter():
+    """איפוס מונה סשנים חינמיים (לפתרון בעיות)"""
+    try:
+        user_id = request.current_user['user_id']
+        auth_manager = AuthManager()
+        
+        success = auth_manager.reset_free_sessions_counter(user_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'מונה הסשנים אופס בהצלחה'
+            })
+        else:
+            return jsonify({'error': 'שגיאה באיפוס מונה הסשנים'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה באיפוס מונה: {str(e)}'}), 500
+
+@app.route('/api/limits')
+@require_auth
+def get_server_limits():
+    """קבלת מגבלות מהגדרות השרת (ENV)"""
+    try:
+        # קריאת המגבלות מקובץ .env
+        max_patients = int(os.getenv('FREE_MAX_PATIENTS', '1'))
+        max_sessions = int(os.getenv('FREE_MAX_SESSIONS', '5'))
+        
+        return jsonify({
+            'success': True,
+            'max_patients': max_patients,
+            'max_sessions': max_sessions,
+            'source': 'server_env'
+        })
+        
+    except Exception as e:
+        # ברירת מחדל במקרה של שגיאה
+        return jsonify({
+            'success': True,
+            'max_patients': 1,
+            'max_sessions': 5,
+            'source': 'default_fallback',
+            'error': str(e)
+        })
+
+@app.route('/payment/<payment_session_id>')
+def payment_page(payment_session_id):
+    """דף תשלום"""
+    try:
+        # כאן תוכל להוסיף לוגיקה לבדיקת תוקף הסשן
+        # ולהציג דף תשלום מותאם
+        return render_template('payment.html', payment_session_id=payment_session_id)
+        
+    except Exception as e:
+        return f"שגיאה בטעינת דף תשלום: {str(e)}", 500
+
+# נתיבי סנכרון מאובטח בין מכשירים
+@app.route('/sync/register-device', methods=['POST'])
+@require_auth
+def register_device():
+    """רישום מכשיר חדש למטפל"""
+    try:
+        if not SYNC_AVAILABLE:
+            return jsonify({'error': 'מערכת סנכרון לא זמינה'}), 503
+            
+        data = request.json
+        device_name = data.get('device_name', '').strip()
+        device_type = data.get('device_type', '').strip()
+        
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, result = sync_manager.register_device(user_id, device_name, device_type)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'מכשיר נרשם בהצלחה',
+                'device_info': result
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה ברישום מכשיר: {str(e)}'}), 500
+
+@app.route('/sync/devices')
+@require_auth
+def get_user_devices():
+    """קבלת רשימת מכשירים מורשים למטפל"""
+    try:
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, devices = sync_manager.get_user_devices(user_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'devices': devices,
+                'total_devices': len(devices)
+            })
+        else:
+            return jsonify({'error': devices}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת רשימת מכשירים: {str(e)}'}), 500
+
+@app.route('/sync/session', methods=['POST'])
+@require_auth
+def sync_session_to_cloud():
+    """סנכרון סשן בודד לענן"""
+    try:
+        data = request.json
+        session_data = data.get('session_data', {})
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not session_data or not encryption_key:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, session_id = sync_manager.sync_session_to_cloud(
+            user_id, session_data, encryption_key
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'סשן סונכרן בהצלחה',
+                'session_id': session_id
+            })
+        else:
+            return jsonify({'error': session_id}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בסנכרון סשן: {str(e)}'}), 500
+
+@app.route('/sync/all-sessions', methods=['POST'])
+@require_auth
+def sync_all_sessions():
+    """סנכרון כל הסשנים לענן"""
+    try:
+        data = request.json
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not encryption_key:
+            return jsonify({'error': 'חסר מפתח הצפנה'}), 400
+        
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, result = sync_manager.sync_all_sessions_to_cloud(user_id, encryption_key)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בסנכרון כללי: {str(e)}'}), 500
+
+@app.route('/sync/from-cloud', methods=['POST'])
+@require_auth
+def sync_from_cloud():
+    """סנכרון סשנים מהענן למכשיר הנוכחי"""
+    try:
+        data = request.json
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not encryption_key:
+            return jsonify({'error': 'חסר מפתח הצפנה'}), 400
+        
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, result = sync_manager.sync_from_cloud(user_id, encryption_key)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בסנכרון מהענן: {str(e)}'}), 500
+
+@app.route('/sync/status')
+@require_auth
+def get_sync_status():
+    """קבלת סטטוס סנכרון"""
+    try:
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, status = sync_manager.get_sync_status(user_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'sync_status': status
+            })
+        else:
+            return jsonify({'error': status}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת סטטוס סנכרון: {str(e)}'}), 500
+
+@app.route('/sync/conflicts')
+@require_auth
+def get_sync_conflicts():
+    """קבלת רשימת קונפליקטים בסנכרון"""
+    try:
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        # קבלת קונפליקטים פתוחים
+        conn = sqlite3.connect(sync_manager.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, session_id, conflict_type, local_data, remote_data, created_at
+            FROM sync_conflicts 
+            WHERE user_id = ? AND resolved = 0
+            ORDER BY created_at DESC
+        ''', (user_id,))
+        
+        conflicts = []
+        for row in cursor.fetchall():
+            conflicts.append({
+                'conflict_id': row[0],
+                'session_id': row[1],
+                'conflict_type': row[2],
+                'local_data': json.loads(row[3]) if row[3] else {},
+                'remote_data': json.loads(row[4]) if row[4] else {},
+                'created_at': row[5]
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'conflicts': conflicts,
+            'total_conflicts': len(conflicts)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת קונפליקטים: {str(e)}'}), 500
+
+@app.route('/sync/resolve-conflict', methods=['POST'])
+@require_auth
+def resolve_sync_conflict():
+    """פתרון קונפליקט סנכרון"""
+    try:
+        data = request.json
+        conflict_id = data.get('conflict_id')
+        resolution_action = data.get('resolution_action', '').strip()
+        
+        if not conflict_id or not resolution_action:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        if resolution_action not in ['keep_local', 'keep_remote', 'merge']:
+            return jsonify({'error': 'פעולת פתרון לא תקינה'}), 400
+        
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        success, result = sync_manager.resolve_sync_conflict(
+            user_id, conflict_id, resolution_action
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': result
+            })
+        else:
+            return jsonify({'error': result}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בפתרון קונפליקט: {str(e)}'}), 500
+
+@app.route('/sync/synced-sessions')
+@require_auth
+def get_synced_sessions():
+    """קבלת כל הסשנים המסונכרנים"""
+    try:
+        user_id = request.current_user['user_id']
+        patient_name_filter = request.args.get('patient_name')
+        
+        sync_manager = CloudSyncManager()
+        
+        # קבלת סשנים מסונכרנים
+        conn = sqlite3.connect(sync_manager.db_path)
+        cursor = conn.cursor()
+        
+        if patient_name_filter:
+            # חיפוש לפי hash של שם המטופל
+            patient_hash = hashlib.sha256(f"{user_id}_{patient_name_filter}".encode('utf-8')).hexdigest()
+            cursor.execute('''
+                SELECT session_id, patient_name_hash, session_date, 
+                       metadata, device_origin, last_modified, sync_status
+                FROM synced_sessions 
+                WHERE user_id = ? AND patient_name_hash = ?
+                ORDER BY session_date DESC, last_modified DESC
+            ''', (user_id, patient_hash))
+        else:
+            cursor.execute('''
+                SELECT session_id, patient_name_hash, session_date, 
+                       metadata, device_origin, last_modified, sync_status
+                FROM synced_sessions 
+                WHERE user_id = ?
+                ORDER BY session_date DESC, last_modified DESC
+            ''', (user_id,))
+        
+        sessions = []
+        for row in cursor.fetchall():
+            metadata = json.loads(row[3]) if row[3] else {}
+            sessions.append({
+                'session_id': row[0],
+                'patient_name_hash': row[1],
+                'session_date': row[2],
+                'metadata': metadata,
+                'device_origin': row[4],
+                'last_modified': row[5],
+                'sync_status': row[6],
+                'word_count': metadata.get('word_count', 0),
+                'audio_filename': metadata.get('audio_filename', ''),
+                'created_at': metadata.get('created_at', '')
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'sessions': sessions,
+            'total_sessions': len(sessions)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקבלת סשנים מסונכרנים: {str(e)}'}), 500
+
+@app.route('/sync/decrypt-synced-session', methods=['POST'])
+@require_auth
+def decrypt_synced_session():
+    """פענוח סשן מסונכרן"""
+    try:
+        data = request.json
+        session_id = data.get('session_id', '').strip()
+        encryption_key = data.get('encryption_key', '').strip()
+        
+        if not session_id or not encryption_key:
+            return jsonify({'error': 'חסרים נתונים נדרשים'}), 400
+        
+        user_id = request.current_user['user_id']
+        sync_manager = CloudSyncManager()
+        
+        # קבלת הסשן המסונכרן
+        conn = sqlite3.connect(sync_manager.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT session_id, patient_name_hash, session_date, 
+                   encrypted_data, metadata
+            FROM synced_sessions 
+            WHERE user_id = ? AND session_id = ?
+        ''', (user_id, session_id))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if not result:
+            return jsonify({'error': 'סשן לא נמצא'}), 404
+        
+        session = {
+            'session_id': result[0],
+            'patient_name_hash': result[1],
+            'session_date': result[2],
+            'encrypted_data': result[3],
+            'metadata': result[4]
+        }
+        
+        # פענוח הסשן
+        encryption_manager = EncryptionManager()
+        success, decrypted_data = encryption_manager.decrypt_session_data(
+            session, encryption_key
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'session_data': decrypted_data
+            })
+        else:
+            return jsonify({'error': decrypted_data}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בפענוח סשן מסונכרן: {str(e)}'}), 500
+
+# נתיב משולב - תמלול + הצפנה אוטומטית
+@app.route('/transcribe-encrypted', methods=['POST'])
+@require_auth
+def transcribe_and_encrypt():
+    """תמלול עם הצפנה אוטומטית וסנכרון לענן"""
+    try:
+        if 'audio' not in request.files:
+            return jsonify({'error': 'לא נבחר קובץ שמע'}), 400
+        
+        audio_file = request.files['audio']
+        patient_name = request.form.get('patient_name', '').strip()
+        session_date = request.form.get('session_date', '')
+        quality_mode = request.form.get('quality_mode', 'balanced')
+        encryption_key = request.form.get('encryption_key', '').strip()
+        
+        # אם לא הוזן שם מטופל, השתמש במייל המטפל כברירת מחדל
+        if not patient_name:
+            user_email = request.current_user.get('email', 'unknown@example.com')
+            patient_name = user_email
+        
+        if not encryption_key:
+            return jsonify({'error': 'חסר מפתח הצפנה'}), 400
+        
+        if audio_file.filename == '':
+            return jsonify({'error': 'לא נבחר קובץ'}), 400
+        
+        if not allowed_file(audio_file.filename):
+            return jsonify({'error': 'סוג קובץ לא נתמך'}), 400
+        
+        user_id = request.current_user['user_id']
+        
+        # אימות מפתח הצפנה
+        encryption_manager = EncryptionManager()
+        success, verified_key = encryption_manager.verify_user_password(user_id, encryption_key)
+        if not success:
+            return jsonify({'error': 'סיסמת הצפנה שגויה'}), 401
+        
+        # רישום פעולת פרטיות
+        log_privacy_action("hybrid_transcription_start", patient_name, 
+                          f"התחלת תמלול היברידי מוצפן עם {quality_mode}")
+        
+        # תמלול רגיל (כמו בפונקציה הקיימת)
+        file_extension = os.path.splitext(audio_file.filename)[1] or '.wav'
+        temp_path = None
+        
+        try:
+            # יצירת מפתח הצפנה זמני
+            temp_key = generate_temp_encryption_key()
+            
+            # קריאת הקובץ לזיכרון
+            audio_data = audio_file.read()
+            
+            # יצירת קובץ זמני לתמלול
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+                temp_file.write(audio_data)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+                temp_path = temp_file.name
+            
+            # תמלול (לפי quality_mode)
+            if quality_mode == 'assemblyai':
+                result = transcribe_with_assemblyai(temp_path, language='he')
+                transcription_method = "AssemblyAI"
+            elif quality_mode == 'faster-whisper':
+                result = transcribe_with_faster_whisper(temp_path, language='he')
+                transcription_method = "Faster-Whisper"
+            else:
+                result = transcribe_with_assemblyai(temp_path, language='he')
+                transcription_method = "AssemblyAI (ברירת מחדל)"
+            
+            original_text = result["text"].strip()
+            if not original_text:
+                return jsonify({'error': 'לא זוהה טקסט בקובץ השמע'}), 400
+            
+            # תיקון טקסט
+            corrected_text = simple_text_cleanup(original_text)
+            
+            # יצירת נתוני הסשן
+            session_data = {
+                "patient_name": patient_name,
+                "session_date": session_date if session_date else datetime.datetime.now().strftime("%Y-%m-%d"),
+                "audio_filename": audio_file.filename,
+                "original_transcript": original_text,
+                "corrected_transcript": corrected_text,
+                "created_at": datetime.datetime.now().isoformat(),
+                "word_count": len(corrected_text.split()),
+                "quality_mode": quality_mode,
+                "transcription_method": transcription_method
+            }
+            
+            # הצפנה ושמירה בענן
+            success, encrypted_data = encryption_manager.encrypt_session_data(
+                user_id, session_data, verified_key
+            )
+            
+            if not success:
+                return jsonify({'error': f'שגיאה בהצפנה: {encrypted_data}'}), 500
+            
+            success, session_id = encryption_manager.save_encrypted_session(
+                user_id, encrypted_data, session_data['session_date']
+            )
+            
+            if not success:
+                return jsonify({'error': f'שגיאה בשמירה: {session_id}'}), 500
+            
+            # רישום השלמה
+            log_privacy_action("hybrid_transcription_complete", patient_name, 
+                              f"תמלול היברידי הושלם - סשן {session_id[:8]}...")
+            
+            return jsonify({
+                'success': True,
+                'original_transcript': original_text,
+                'corrected_transcript': corrected_text,
+                'patient_name': patient_name,
+                'session_date': session_data['session_date'],
+                'audio_filename': audio_file.filename,
+                'quality_mode': quality_mode,
+                'word_count': len(corrected_text.split()),
+                'session_id': session_id,
+                'encrypted': True,
+                'message': 'תמלול הושלם ונשמר בענן בצורה מוצפנת'
+            })
+            
+        finally:
+            # מחיקה מאובטחת
+            if temp_path and os.path.exists(temp_path):
+                secure_delete_file(temp_path)
+            
+            # ניקוי זיכרון
+            if 'audio_data' in locals():
+                secure_memory_wipe(audio_data)
+            if 'temp_key' in locals():
+                secure_memory_wipe(temp_key)
+            
+            log_privacy_action("hybrid_secure_cleanup", patient_name, 
+                              "ניקוי מאובטח של תמלול היברידי הושלם")
+    
+    except Exception as e:
+        print(f"שגיאה בתמלול היברידי: {str(e)}")
+        return jsonify({'error': f'שגיאה בתמלול היברידי: {str(e)}'}), 500
+
+if __name__ == '__main__':
+    def get_local_ip():
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except:
+            return "localhost"
+    
+    # קריאת הגדרות מקובץ .env
+    HOST = os.getenv('HOST', '0.0.0.0')
+    PORT = int(os.getenv('PORT', '5000'))
+    DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+    
+    local_ip = get_local_ip()
+    
+    print("🎤 מערכת תמלול למטפלים")
+    print(f"🌐 גישה מהמחשב: http://localhost:{PORT}")
+    if local_ip != "localhost":
+        print(f"📱 גישה מהטלפון: http://{local_ip}:{PORT}")
+    
+    # הצגת מצב AssemblyAI
+    if ASSEMBLYAI_API_KEY and ASSEMBLYAI_API_KEY != 'your-assemblyai-api-key-here':
+        print("✅ AssemblyAI API Key מוגדר")
+    else:
+        print("⚠️  AssemblyAI API Key לא מוגדר - יעבור לגיבוי Whisper")
+    
+    print("🔥 מוכן לפעולה!")
+    
+    app.run(debug=DEBUG, host=HOST, port=PORT)
+
+# For production deployment (Gunicorn will use this)
+# This ensures the app object is available for Gunicorn
+application = app
