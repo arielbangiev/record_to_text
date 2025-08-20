@@ -1169,6 +1169,60 @@
 
         /* Mobile Responsive */
         @media (max-width: 768px) {
+            .nav-container {
+                flex-wrap: wrap;
+                gap: 10px;
+                padding: 0 16px;
+                justify-content: center;
+            }
+
+            .logo {
+                font-size: 24px;
+                flex-shrink: 0;
+            }
+
+            #userSection {
+                width: 100%;
+                order: 3; /* מעביר לשורה הבאה */
+            }
+
+            #userSection > div {
+                display: flex;
+                gap: 8px;
+                justify-content: space-between;
+                align-items: center;
+                width: 100%;
+            }
+
+            #userGreeting {
+                font-size: 14px;
+                flex: 1;
+                text-align: center;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #userSection a[href="/app"] {
+                padding: 10px 16px !important;
+                font-size: 14px !important;
+                border-radius: 6px !important;
+                flex-shrink: 0;
+            }
+
+            #logoutBtn {
+                padding: 10px 16px !important;
+                font-size: 14px !important;
+                border-radius: 6px !important;
+                flex-shrink: 0;
+            }
+            
+            #loginButton {
+                width: 100%;
+                margin-top: 8px;
+                font-size: 14px;
+            }
+
             .hero h1 {
                 font-size: 2.5em;
             }
@@ -1221,6 +1275,36 @@
             
             .contact-form {
                 grid-template-columns: 1fr;
+            }
+        }
+
+        /* מסכים קטנים מאוד */
+        @media (max-width: 480px) {
+            .nav-container {
+                padding: 0 12px;
+            }
+
+            .logo {
+                font-size: 20px;
+            }
+
+            /* כפתורים ברוחב מלא במסכים קטנים */
+            #userSection > div {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            #userGreeting {
+                text-align: center;
+                width: 100%;
+            }
+
+            #userSection a[href="/app"],
+            #logoutBtn {
+                width: 100% !important;
+                text-align: center;
+                padding: 12px !important;
+                font-size: 15px !important;
             }
         }
     </style>
