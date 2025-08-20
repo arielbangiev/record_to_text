@@ -302,6 +302,7 @@
             background: linear-gradient(135deg, #059669 0%, #047857 100%);
             transform: translateY(-3px);
             box-shadow: 0 12px 30px rgba(16, 185, 129, 0.4);
+            animation: transcribePulseFast 0.8s infinite;
         }
 
         .enhanced-transcribe-btn:disabled {
@@ -309,6 +310,7 @@
             cursor: not-allowed;
             transform: none;
             box-shadow: none;
+            animation: none;
         }
 
         .form-group {
@@ -386,6 +388,40 @@
             cursor: not-allowed;
             transform: none;
             animation: none; /* ביטול אנימציה כשהכפתור מושבת */
+        }
+
+        .enhanced-transcribe-btn:not(:disabled) {
+            animation: transcribePulse 1.5s infinite;
+        }
+
+        @keyframes transcribePulse {
+            0% {
+                transform: scale(1);
+                box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
+            }
+            50% {
+                transform: scale(1.02);
+                box-shadow: 0 8px 30px rgba(16, 185, 129, 0.5);
+            }
+            100% {
+                transform: scale(1);
+                box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
+            }
+        }
+
+        @keyframes transcribePulseFast {
+            0% {
+                transform: translateY(-3px) scale(1);
+                box-shadow: 0 12px 35px rgba(16, 185, 129, 0.4);
+            }
+            50% {
+                transform: translateY(-3px) scale(1.02);
+                box-shadow: 0 15px 40px rgba(16, 185, 129, 0.6);
+            }
+            100% {
+                transform: translateY(-3px) scale(1);
+                box-shadow: 0 12px 35px rgba(16, 185, 129, 0.4);
+            }
         }
 
         @keyframes recordPulse {
