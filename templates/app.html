@@ -769,6 +769,81 @@
 
         /* Mobile Responsive */
         @media (max-width: 768px) {
+            /* Improved navigation layout for mobile */
+            .nav-container {
+                flex-direction: column;
+                padding: 10px;
+                gap: 15px;
+            }
+            
+            .language-selector {
+                order: 2;
+                width: 100%;
+                justify-content: center;
+                margin-right: 0;
+            }
+            
+            .nav-links {
+                order: 3;
+                width: 100%;
+                justify-content: center;
+                padding: 5px 0;
+            }
+            
+            #userSection {
+                order: 4;
+                width: 100%;
+            }
+            
+            .logo {
+                order: 1;
+                text-align: center;
+                margin-bottom: 10px;
+            }
+            
+            /* Language buttons styling for mobile */
+            .language-selector {
+                display: flex;
+                justify-content: center;
+                gap: 15px;
+                padding: 10px 0;
+                border-top: 1px solid #e5e7eb;
+                border-bottom: 1px solid #e5e7eb;
+                background-color: #f8fafc;
+                border-radius: 12px;
+            }
+            
+            .language-btn {
+                flex: 0 0 auto;
+                justify-content: center;
+                min-width: 120px;
+                padding: 12px 15px;
+                font-size: 14px;
+                border-radius: 10px;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            }
+            
+            .language-btn.active {
+                transform: scale(1.05);
+                box-shadow: 0 4px 8px rgba(99, 102, 241, 0.3);
+            }
+            
+            /* Home link styling for mobile */
+            .nav-links {
+                margin-top: 5px;
+            }
+            
+            .nav-links a {
+                display: block;
+                text-align: center;
+                padding: 10px 15px;
+                font-size: 16px;
+                font-weight: 600;
+                border-radius: 10px;
+                background-color: #f8fafc;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            }
+            
             .app-container {
                 padding: 20px;
                 margin: 20px 10px;
@@ -929,6 +1004,29 @@
                 width: 20px;
                 height: 2px;
             }
+            
+            /* Improved language buttons for very small screens */
+            .language-selector {
+                padding: 8px 0;
+                gap: 10px;
+            }
+            
+            .language-btn {
+                min-width: 110px;
+                padding: 10px;
+                font-size: 13px;
+            }
+            
+            /* Make logo smaller on very small screens */
+            .logo {
+                font-size: 22px;
+            }
+            
+            /* Adjust nav links for very small screens */
+            .nav-links a {
+                padding: 8px 12px;
+                font-size: 15px;
+            }
         }
     </style>
 </head>
@@ -955,9 +1053,6 @@
                     <button id="logoutBtn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.3)'" data-translate="logout">🚪 Logout</button>
                 </div>
             </div>
-            
-            <!-- Login Button (shown when not authenticated) -->
-            <button id="loginButton" class="cta-button" onclick="openLoginModal()" data-translate="login">Login to System</button>
         </div>
     </nav>
 
